@@ -17,12 +17,10 @@ hget is about 150 lines of code and compiles to a 42KB static binary with musl-g
 # Return codes
 
 * 0 OK
-* 1 socket error
-* 2 usage error
-* 3 http 3xx response
-* 4 http 4xx response
-* 5 http 5xx response
-* 6 http protocol error
+* 1 http response status code not 2xx
+* 2 http protocol error
+* 3 socket error
+* 4 usage error
 
 
 # Building

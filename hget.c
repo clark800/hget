@@ -7,7 +7,7 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
-typedef enum {OK, ESOCKET, EUSAGE, E3XX, E4XX, E5XX, EPROTOCOL} Status;
+typedef enum {OK, ESTATUS, EPROTOCOL, ESOCKET, EUSAGE} Status;
 
 static void fail(const char* message, Status status) {
     fputs(message, stderr);
@@ -57,19 +57,7 @@ static void swrite(int fd, const char* buf) {
         pfail("send failed");
 }
 
-static int mapstatus(char digit) {
-    switch (digit) {
-        // note: 1xx status codes are not defined in HTTP/1.0
-        case '2': return OK;
-        case '3': return E3XX;
-        case '4': return E4XX;
-        case '5': return E5XX;
-        default:  return EPROTOCOL;
-    }
-}
-
 static int stream(int sock, int fd) {
-    Status status = OK;
     char buffer[8192];
 
     // read into buffer to get headers
@@ -85,14 +73,14 @@ static int stream(int sock, int fd) {
 
     // parse http status code
     const char* space = strchr(buffer, ' ');
-    if (!space)
+    if (!space || space[1] < '2' || space[1] > '5')
         fail("error: invalid http response", EPROTOCOL);
-    status = mapstatus(space[1]);
+    Status status = space[1] == '2' ? OK : ESTATUS;
     if (status != OK) {
-        char* end = strstr(space, "\r\n");
-        if (!end)
+        char* endline = strstr(space, "\r\n");
+        if (!endline)
             fail("error: invalid http response", EPROTOCOL);
-        bwrite(STDERR_FILENO, buffer, end - buffer);
+        bwrite(STDERR_FILENO, buffer, endline - buffer);
         bwrite(STDERR_FILENO, "\n", 1);
     }
 
@@ -120,9 +108,7 @@ static int stream(int sock, int fd) {
 
 static int get(const char* host, const char* port, const char* path) {
     // connect to server
-    struct addrinfo *server, hints = {0};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
+    struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
         pfail("getaddrinfo failed");
 
