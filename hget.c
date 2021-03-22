@@ -9,19 +9,19 @@
 
 typedef enum {OK, ESOCKET, EUSAGE, E3XX, E4XX, E5XX, EPROTOCOL} Status;
 
-void fail(const char* message, Status status) {
+static void fail(const char* message, Status status) {
     fputs(message, stderr);
     fputs("\n", stderr);
     exit(status);
 }
 
-void pfail(const char* message) {
+static void pfail(const char* message) {
     perror(message);
     exit(ESOCKET);
 }
 
 // blocking read, always fills buffer or reaches eof or returns an error
-ssize_t bread(int fd, void* buf, size_t len) {
+static ssize_t bread(int fd, void* buf, size_t len) {
     size_t i = 0;
     for (ssize_t n = 0; i < len; i += n) {
         n = read(fd, (char*)buf + i, len - i);
@@ -38,7 +38,7 @@ ssize_t bread(int fd, void* buf, size_t len) {
 }
 
 // blocking write, always sends full buffer or returns an error
-ssize_t bwrite(int fd, const void* buf, size_t len) {
+static ssize_t bwrite(int fd, const void* buf, size_t len) {
     ssize_t n = 0;
     for (size_t i = 0; i < len; i += n) {
         n = write(fd, (const char*)buf + i, len - i);
@@ -52,12 +52,12 @@ ssize_t bwrite(int fd, const void* buf, size_t len) {
     return n;
 }
 
-void swrite(int fd, const char* buf) {
+static void swrite(int fd, const char* buf) {
     if (bwrite(fd, buf, strlen(buf)) < 0)
         pfail("send failed");
 }
 
-int mapstatus(char digit) {
+static int mapstatus(char digit) {
     switch (digit) {
         // note: 1xx status codes are not defined in HTTP/1.0
         case '2': return OK;
@@ -68,7 +68,7 @@ int mapstatus(char digit) {
     }
 }
 
-int stream(int sock, int fd) {
+static int stream(int sock, int fd) {
     Status status = OK;
     char buffer[8192];
 
@@ -118,7 +118,7 @@ int stream(int sock, int fd) {
     return status;
 }
 
-int get(const char* host, const char* port, const char* path) {
+static int get(const char* host, const char* port, const char* path) {
     // connect to server
     struct addrinfo *server, hints = {0};
     hints.ai_family = AF_UNSPEC;

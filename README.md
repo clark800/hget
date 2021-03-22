@@ -4,7 +4,7 @@ hget is a minimalist HTTP GET client written in C with no dependencies. It takes
 
 hget does not support https, compression, authentication, redirection, or other http methods.
 
-hget is about 150 lines of code and compiles to a 46KB static binary with musl-gcc.
+hget is about 150 lines of code and compiles to a 42KB static binary with musl-gcc.
 
 
 # Usage
