@@ -1,0 +1,5 @@
+#!/bin/sh
+
+url="$1"
+filename="${url##*/}"
+hget "$url" 2>&1 > "$filename" | bar

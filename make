@@ -1,3 +1,5 @@
 #!/bin/sh
-# note: sockets are not part of the C99 standard so we can't use -std=c99
-"${CC:-cc}" -Wall -Wextra -Os -s -static -o hget hget.c
+
+"${CC:-cc}" \
+    -std=c99 -pedantic -D_POSIX_C_SOURCE=200112L -Wall -Wextra -Wshadow \
+    -O2 -fpie -s -static -o hget hget.c

@@ -7,6 +7,8 @@
 #include <sys/types.h>
 #include <sys/socket.h>
 
+static long long SIZE = 0, PROGRESS = 0;
+
 typedef enum {OK, ESTATUS, EPROTOCOL, ESOCKET, EUSAGE} Status;
 
 static void fail(const char* message, Status status) {
@@ -52,6 +54,16 @@ static ssize_t bwrite(int fd, const void* buf, size_t len) {
     return n;
 }
 
+static ssize_t writebody(int fd, const void* buf, size_t len) {
+    ssize_t n = bwrite(fd, buf, len);
+    if (n > 0) {
+        PROGRESS += n;
+        if (SIZE > 0)
+            fprintf(stderr, "%lld %lld\n", PROGRESS, SIZE);
+    }
+    return n;
+}
+
 static void swrite(int fd, const char* buf) {
     if (bwrite(fd, buf, strlen(buf)) < 0)
         pfail("send failed");
@@ -73,25 +85,38 @@ static int stream(int sock, int fd) {
 
     // parse http status code
     const char* space = strchr(buffer, ' ');
-    if (!space || space[1] < '2' || space[1] > '5')
+    if (space == NULL || space[1] < '2' || space[1] > '5')
         fail("error: invalid http response", EPROTOCOL);
     Status status = space[1] == '2' ? OK : ESTATUS;
+
+    const char* endline = strstr(space, "\r\n");
+    if (endline == NULL)
+        fail("error: invalid http response", EPROTOCOL);
+
     if (status != OK) {
-        char* endline = strstr(space, "\r\n");
-        if (!endline)
-            fail("error: invalid http response", EPROTOCOL);
         bwrite(STDERR_FILENO, buffer, endline - buffer);
         bwrite(STDERR_FILENO, "\n", 1);
     }
 
-    // skip past headers and write body
-    const char* crlf = "\r\n\r\n";
-    const char* headend = strstr(buffer, crlf);
-    if (!headend)
+    // parse headers for content length
+    while (endline != NULL) {
+        if (strncmp(endline, "\r\n\r\n", 4) == 0)
+            break; // end of headers
+        const char* header = endline + 2;
+        if (strncmp(header, "Content-Length:", 15) == 0) {
+            const char* value = header + 15;
+            if (!isatty(STDERR_FILENO))
+                SIZE = strtoll(value + strspn(value, " \t"), NULL, 10);
+        }
+        endline = strstr(header, "\r\n");
+    }
+
+    if (endline == NULL)
         fail("error: response headers too long", EPROTOCOL);
-    size_t skiplen = headend - buffer + strlen(crlf);
-    const char* output = buffer + skiplen;
-    if (bwrite(fd, output, nread - skiplen) < 0)
+
+    // stream body portion of the first chunk
+    const char* body = endline + 4;
+    if (writebody(fd, body, nread - (body - buffer)) < 0)
         pfail("write failed");
 
     // stream remainder of body
@@ -99,7 +124,7 @@ static int stream(int sock, int fd) {
         nread = bread(sock, buffer, sizeof(buffer));
         if (nread < 0)
             pfail("receive failed");
-        if (bwrite(fd, buffer, nread) < 0)
+        if (writebody(fd, buffer, nread) < 0)
             pfail("write failed");
     }
 
