@@ -2,4 +2,9 @@
 
 url="$1"
 filename="${url##*/}"
-hget "$url" 2>&1 > "$filename" | bar
+
+if command -v bar > /dev/null 2>&1; then
+    hget "$url" 2>&1 > "$filename" | bar
+else
+    hget "$url" > "$filename"
+fi

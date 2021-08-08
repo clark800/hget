@@ -1,3 +1,4 @@
+#define _POSIX_C_SOURCE 200112L
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +29,7 @@ static ssize_t bread(int fd, void* buf, size_t len) {
     for (ssize_t n = 0; i < len; i += n) {
         n = read(fd, (char*)buf + i, len - i);
         if (n == 0)
-            return i;   // eof
+            return i;   // end of file
         if (n < 0) {
             if (errno == EINTR)
                 n = 0;  // try again
