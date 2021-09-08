@@ -7,20 +7,30 @@
 #include <netdb.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include "tls.h"
 
 static long long SIZE = 0, PROGRESS = 0;
 
-typedef enum {OK, ESTATUS, EPROTOCOL, ESOCKET, EUSAGE} Status;
+// status <= 127 indicates a valid http response
+enum {OK, E1XX, E2XX, E3XX, E4XX, E5XX, ENOTFOUND=44, EUSAGE=254, EFAIL=255};
 
-static void fail(const char* message, Status status) {
+static int get_exit_status(long status) {
+    if (status >= 200 && status <= 299 && status != 203)
+        return OK;
+    if (status == 404 || status == 410)
+        return ENOTFOUND;
+    return status/100;
+}
+
+static void fail(const char* message, int status) {
     fputs(message, stderr);
     fputs("\n", stderr);
     exit(status);
 }
 
-static void pfail(const char* message) {
+static void sfail(const char* message) {
     perror(message);
-    exit(ESOCKET);
+    exit(EFAIL);
 }
 
 // blocking read, always fills buffer or reaches eof or returns an error
@@ -55,8 +65,24 @@ static ssize_t bwrite(int fd, const void* buf, size_t len) {
     return n;
 }
 
-static ssize_t writebody(int fd, const void* buf, size_t len) {
+static ssize_t sread(int fd, TLS* tls, void* buf, size_t len) {
+    ssize_t n = tls ? read_tls(tls, buf, len) : bread(fd, buf, len);
+    if (n < 0)
+        sfail("receive failed");
+    return n;
+}
+
+static void swrite(int fd, TLS* tls, const char* buf) {
+    if (tls) {
+        write_tls(tls, buf, strlen(buf));
+    } else if (bwrite(fd, buf, strlen(buf)) < 0)
+        sfail("send failed");
+}
+
+static ssize_t write_body(int fd, const void* buf, size_t len) {
     ssize_t n = bwrite(fd, buf, len);
+    if (n < 0)
+        sfail("write failed");
     if (n > 0) {
         PROGRESS += n;
         if (SIZE > 0)
@@ -65,47 +91,37 @@ static ssize_t writebody(int fd, const void* buf, size_t len) {
     return n;
 }
 
-static void swrite(int fd, const char* buf) {
-    if (bwrite(fd, buf, strlen(buf)) < 0)
-        pfail("send failed");
-}
+static long parse_status_line(char* response) {
+    if (response[0] == 0)
+        fail("error: no response", EFAIL);
+    if (strncmp(response, "HTTP/", 5) != 0)
+        fail("error: invalid http response", EFAIL);
 
-static int stream(int sock, int fd) {
-    char buffer[8192];
+    char* space = strchr(response, ' ');
+    if (space == NULL)
+        fail("error: invalid http response", EFAIL);
+    long status_code = strtol(space+1, NULL, 10);
+    if (status_code < 100 || status_code >= 600)
+        fail("error: invalid http response", EFAIL);
 
-    // read into buffer to get headers
-    ssize_t nread = bread(sock, buffer, sizeof(buffer));
-    if (nread == 0)
-        fail("error: no response", EPROTOCOL);
-    if (nread < 0)
-        pfail("receive failed");
-
-    // validate response status line prefix
-    if (strncmp(buffer, "HTTP/", 5) != 0)
-        fail("error: invalid http response", EPROTOCOL);
-
-    // parse http status code
-    const char* space = strchr(buffer, ' ');
-    if (space == NULL || space[1] < '2' || space[1] > '5')
-        fail("error: invalid http response", EPROTOCOL);
-    Status status = space[1] == '2' ? OK : ESTATUS;
-
-    const char* endline = strstr(space, "\r\n");
-    if (endline == NULL)
-        fail("error: invalid http response", EPROTOCOL);
-
-    if (status != OK) {
-        bwrite(STDERR_FILENO, buffer, endline - buffer);
+    if (get_exit_status(status_code) != OK) {
+        char* endline = strstr(space, "\r\n");
+        if (endline == NULL)
+            fail("error: invalid http response", EFAIL);
+        bwrite(STDERR_FILENO, response, endline - response);
         bwrite(STDERR_FILENO, "\n", 1);
     }
+    return status_code;
+}
 
-    // parse headers for content length
+static char* parse_headers(char* response) {
+    char* endline = strstr(response, "\r\n");
     while (endline != NULL) {
         if (strncmp(endline, "\r\n\r\n", 4) == 0)
             break; // end of headers
-        const char* header = endline + 2;
+        char* header = endline + 2;
         if (strncmp(header, "Content-Length:", 15) == 0) {
-            const char* value = header + 15;
+            char* value = header + 15;
             if (!isatty(STDERR_FILENO))
                 SIZE = strtoll(value + strspn(value, " \t"), NULL, 10);
         }
@@ -113,72 +129,85 @@ static int stream(int sock, int fd) {
     }
 
     if (endline == NULL)
-        fail("error: response headers too long", EPROTOCOL);
+        fail("error: response headers too long", EFAIL);
 
-    // stream body portion of the first chunk
-    const char* body = endline + 4;
-    if (writebody(fd, body, nread - (body - buffer)) < 0)
-        pfail("write failed");
-
-    // stream remainder of body
-    while (nread > 0) {
-        nread = bread(sock, buffer, sizeof(buffer));
-        if (nread < 0)
-            pfail("receive failed");
-        if (writebody(fd, buffer, nread) < 0)
-            pfail("write failed");
-    }
-
-    return status;
+    return endline + 4; // skip past \r\n\r\n
 }
 
-static int get(const char* host, const char* port, const char* path) {
-    // connect to server
+static long stream(int sock, TLS* tls, int fd) {
+    char buffer[8192];
+    ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
+    buffer[nread] = 0;
+
+    long status_code = parse_status_line(buffer);
+    char* body = parse_headers(buffer);
+
+    write_body(fd, body, nread - (body - buffer));
+
+    while (nread > 0) {
+        nread = sread(sock, tls, buffer, sizeof(buffer));
+        write_body(fd, buffer, nread);
+    }
+
+    return status_code;
+}
+
+static int conn(char* host, char* port) {
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
-        pfail("getaddrinfo failed");
+        sfail("getaddrinfo failed");
 
-    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    int sock = socket(server->ai_family, server->ai_socktype,
+        server->ai_protocol);
+
     if (sock == -1)
-        pfail("socket create failed");
+        sfail("socket create failed");
 
     if (connect(sock, server->ai_addr, server->ai_addrlen) != 0)
-        pfail("connect failed");
+        sfail("connect failed");
 
     freeaddrinfo(server);
+    return sock;
+}
 
-    // send request
-    swrite(sock, "GET ");
-    swrite(sock, path);
-    swrite(sock, " HTTP/1.0\r\nHost: ");
-    swrite(sock, host);
-    swrite(sock, "\r\nAccept-Encoding: identity\r\n\r\n");
-    if (shutdown(sock, SHUT_WR) != 0)
-        pfail("shutdown failed");
+static long get(int https, char* host, char* port, char* path) {
+    int sock = conn(host, port);
+    TLS* tls = https ? start_tls(sock, host) : NULL;
 
-    // stream response to stdout
-    int status = stream(sock, STDOUT_FILENO);
+    swrite(sock, tls, "GET ");
+    swrite(sock, tls, path);
+    swrite(sock, tls, " HTTP/1.0\r\nHost: ");
+    swrite(sock, tls, host);
+    swrite(sock, tls, "\r\nAccept-Encoding: identity\r\n\r\n");
+
+    long status = stream(sock, tls, STDOUT_FILENO);
+
+    if (tls)
+        end_tls(tls);
     close(sock);
     return status;
 }
 
 int main(int argc, char **argv) {
+    int https = 0;
     char host[256], authority[512];
 
     if (argc != 2)
         fail("usage: hget <url>", EUSAGE);
 
-    const char* url = argv[1];
+    char* url = argv[1];
 
     // skip past optional scheme and separator
-    const char* sep = strstr(url, "://");
-    const char* start = sep ? sep + 3 : url;
-    if (sep && strncmp(url, "http", sep - url) != 0)
-        fail("error: only http is supported", EUSAGE);
+    char* sep = strstr(url, "://");
+    char* start = sep ? sep + 3 : url;
+    if (sep && strncmp(url, "https://", 8) == 0)
+        https = 1;
+    else if (sep && strncmp(url, "http://", 7) != 0)
+        fail("error: unsupported scheme", EUSAGE);
 
     // get path
-    const char* slash = strchr(start, '/');
-    const char* path = slash ? slash : "/";
+    char* slash = strchr(start, '/');
+    char* path = slash ? slash : "/";
 
     // load authority into buffer
     size_t authlen = slash ? (size_t)(slash - start) : strlen(start);
@@ -190,13 +219,14 @@ int main(int argc, char **argv) {
         fail("error: userinfo not supported", EUSAGE);
 
     // split host and port by the colon if present
-    const char* colon = strchr(authority, ':');
-    const char* port = colon ? colon + 1 : "80";
+    char* colon = strchr(authority, ':');
+    char* defaultport = https ? "443" : "80";
+    char* port = colon ? colon + 1 : defaultport;
     size_t hostlen = colon ? (size_t)(colon - authority) : strlen(authority);
     if (hostlen >= sizeof(host))
         fail("error: host too long", EUSAGE);
     strncpy(host, authority, hostlen);
     host[hostlen] = '\0';
 
-    return get(host, port, path);
+    return get_exit_status(get(https, host, port, path));
 }
