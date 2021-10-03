@@ -13,7 +13,11 @@ static long long SIZE = 0, PROGRESS = 0;
 
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
-static int hget(char* url);
+typedef struct {
+    char *scheme, *userinfo, *host, *port, *pathquery, *fragment;
+} URL;
+
+static int get(URL url);
 
 static void fail(const char* message, int status) {
     fputs(message, stderr);
@@ -84,6 +88,48 @@ static ssize_t write_body(int fd, const void* buf, size_t len) {
     return n;
 }
 
+static URL parse_url(char* url) {
+    URL result = {.scheme="http", .userinfo="", .pathquery="", .fragment=""};
+    result.port = strncmp(url, "https://", 8) == 0 ? "443" : "80";
+
+    // fragment can contain any character, so chop off first
+    char* hash = strchr(url, '#');
+    if (hash) {
+        hash[0] = '\0';
+        result.fragment = hash + 1;
+    }
+
+    char* sep = strstr(url, "://");
+    if (sep && sep < strchr(url, '/')) {
+        sep[0] = '\0';
+        result.scheme = url;
+        url = sep + 3;
+    }
+
+    // path can contain '@' and ':', so chop off first
+    char* slash = strchr(url, '/');
+    if (slash) {
+        slash[0] = '\0';
+        result.pathquery = slash + 1;
+    }
+
+    char* at = strchr(url, '@');
+    if (at) {
+        at[0] = '\0';
+        result.userinfo = url;
+        url = at + 1;
+    }
+
+    char* colon = strchr(url, ':');
+    if (colon) {
+        colon[0] = '\0';
+        result.port = colon + 1;
+    }
+
+    result.host = url;
+    return result;
+}
+
 static int conn(char* host, char* port) {
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
@@ -102,9 +148,9 @@ static int conn(char* host, char* port) {
     return sock;
 }
 
-static void send_request(int sock, TLS* tls, char* host, char* path) {
-    swrite(sock, tls, "GET ");
-    swrite(sock, tls, path);
+static void send_request(int sock, TLS* tls, char* host, char* pathquery) {
+    swrite(sock, tls, "GET /");
+    swrite(sock, tls, pathquery);
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, host);
     swrite(sock, tls, "\r\nAccept-Encoding: identity\r\n\r\n");
@@ -155,14 +201,15 @@ static int redirect(char* location) {
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return hget(location);
+    return get(parse_url(location));
 }
 
-static int get(int https, char* host, char* port, char* path) {
+static int get(URL url) {
     char buffer[8192];
-    int sock = conn(host, port);
-    TLS* tls = https ? start_tls(sock, host) : NULL;
-    send_request(sock, tls, host, path);
+    int sock = conn(url.host, url.port);
+    int https = strcmp(url.scheme, "https") == 0;
+    TLS* tls = https ? start_tls(sock, url.host) : NULL;
+    send_request(sock, tls, url.host, url.pathquery);
 
     ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
     buffer[nread] = 0;
@@ -189,48 +236,10 @@ static int get(int https, char* host, char* port, char* path) {
     return status_code;
 }
 
-static int hget(char* url) {
-    int https = 0;
-    char host[256], authority[512];
-
-    // skip past optional scheme and separator
-    char* sep = strstr(url, "://");
-    char* start = sep ? sep + 3 : url;
-    if (sep && strncmp(url, "https://", 8) == 0)
-        https = 1;
-    else if (sep && strncmp(url, "http://", 7) != 0)
-        fail("error: unsupported scheme", EUSAGE);
-
-    // get path
-    char* slash = strchr(start, '/');
-    char* path = slash ? slash : "/";
-
-    // load authority into buffer
-    size_t authlen = slash ? (size_t)(slash - start) : strlen(start);
-    if (authlen >= sizeof(authority))
-        fail("error: authority too long", EUSAGE);
-    strncpy(authority, start, authlen);
-    authority[authlen] = '\0';
-    if (strchr(authority, '@'))
-        fail("error: userinfo not supported", EUSAGE);
-
-    // split host and port by the colon if present
-    char* colon = strchr(authority, ':');
-    char* defaultport = https ? "443" : "80";
-    char* port = colon ? colon + 1 : defaultport;
-    size_t hostlen = colon ? (size_t)(colon - authority) : strlen(authority);
-    if (hostlen >= sizeof(host))
-        fail("error: host too long", EUSAGE);
-    strncpy(host, authority, hostlen);
-    host[hostlen] = '\0';
-
-    return get(https, host, port, path);
-}
-
 int main(int argc, char **argv) {
     if (argc != 2)
         fail("usage: hget <url>", EUSAGE);
-    int status = hget(argv[1]);
+    int status = get(parse_url(argv[1]));
     if (status / 100 == 2)
         return OK;
 
