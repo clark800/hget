@@ -2,8 +2,10 @@
 
 hget is a minimalist HTTP/HTTPS download utility written in C.
 It takes a URL, performs a GET request, and sends the response body to stdout
-or a specified file. It automatically follows redirects.
-It does not support compression, authentication, or other http methods.
+or a specified file. It automatically follows redirects. If the destination
+file exists, it will only be downloaded if the modification time on the server
+is newer than the modification time of the file (using If-Modified-Since).
+It does not support compression, authentication, proxying, or other http methods.
 
 hget is about 300 lines of code and compiles with musl to a 54KB static binary
 without https support, or a 218KB static binary with https support.

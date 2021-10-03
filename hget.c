@@ -3,9 +3,11 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include <fcntl.h>
 #include <errno.h>
 #include <netdb.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/socket.h>
 #include "tls.h"
@@ -149,11 +151,19 @@ static int conn(char* host, char* port) {
     return sock;
 }
 
-static void send_request(int sock, TLS* tls, char* host, char* pathquery) {
+static void request(int sock, TLS* tls, char* host, char* pathq, char* dest) {
+    struct stat sb;
     swrite(sock, tls, "GET /");
-    swrite(sock, tls, pathquery);
+    swrite(sock, tls, pathq);
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, host);
+    if (dest && stat(dest, &sb) == 0) {
+        char buffer[32];
+        struct tm* timeinfo = gmtime(&sb.st_mtime);
+        strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
+        swrite(sock, tls, "\r\nIf-Modified-Since: ");
+        swrite(sock, tls, buffer);
+    }
     swrite(sock, tls, "\r\nAccept-Encoding: identity\r\n\r\n");
 }
 
@@ -219,7 +229,7 @@ static int get(URL url, char* dest) {
     int sock = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
     TLS* tls = https ? start_tls(sock, url.host) : NULL;
-    send_request(sock, tls, url.host, url.pathquery);
+    request(sock, tls, url.host, url.pathquery, dest);
 
     ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
     buffer[nread] = 0;
@@ -243,7 +253,7 @@ static int get(URL url, char* dest) {
 
     end_tls(tls);
     close(sock);
-    if (status_code / 100 == 3)
+    if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"), dest);
     return status_code;
 }
@@ -253,7 +263,7 @@ int main(int argc, char **argv) {
         fail("usage: hget <url> [<dest>]", EUSAGE);
 
     int status = get(parse_url(argv[1]), argv[2]);
-    if (status / 100 == 2)
+    if (status / 100 == 2 || (status == 304 && argc == 3))
         return OK;
 
     fprintf(stderr, "HTTP %d\n", status);
