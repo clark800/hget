@@ -11,8 +11,7 @@
 
 static long long SIZE = 0, PROGRESS = 0;
 
-// status <= 127 indicates a valid http response
-enum {OK, E1XX, E2XX, E3XX, E4XX, E5XX, ENOTFOUND=44, EUSAGE=254, EFAIL=255};
+enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 static int hget(char* url);
 
@@ -123,14 +122,6 @@ static int parse_status_line(char* response) {
     long status_code = strtol(space+1, NULL, 10);
     if (status_code < 100 || status_code >= 600)
         fail("error: invalid http response", EFAIL);
-
-    if (status_code >= 400) {
-        char* endline = strstr(space, "\r\n");
-        if (endline == NULL)
-            fail("error: invalid http response", EFAIL);
-        bwrite(STDERR_FILENO, response, endline - response);
-        bwrite(STDERR_FILENO, "\n", 1);
-    }
     return status_code;
 }
 
@@ -159,7 +150,7 @@ static char* skip_head(char* response) {
 
 static int redirect(char* location) {
     if (location == NULL)
-        fail("error: redirect missing location", E3XX);
+        fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
@@ -177,26 +168,24 @@ static int get(int https, char* host, char* port, char* path) {
     buffer[nread] = 0;
 
     int status_code = parse_status_line(buffer);
-    if (status_code / 100 == 3 && status_code != 304) {
-        end_tls(tls);
-        close(sock);
-        return redirect(get_header(buffer, "Location:"));
-    }
-    if (!isatty(STDERR_FILENO)) {
-        char* length = get_header(buffer, "Content-Length:");
-        if (length != NULL)
-            SIZE = strtoll(length, NULL, 10);
-    }
-
-    char* body = skip_head(buffer);
-    write_body(STDOUT_FILENO, body, nread - (body - buffer));
-    while (nread > 0) {
-        nread = sread(sock, tls, buffer, sizeof(buffer));
-        write_body(STDOUT_FILENO, buffer, nread);
+    if (status_code / 100 == 2) {
+        if (!isatty(STDERR_FILENO)) {
+            char* length = get_header(buffer, "Content-Length:");
+            if (length != NULL)
+                SIZE = strtoll(length, NULL, 10);
+        }
+        char* body = skip_head(buffer);
+        write_body(STDOUT_FILENO, body, nread - (body - buffer));
+        while (nread > 0) {
+            nread = sread(sock, tls, buffer, sizeof(buffer));
+            write_body(STDOUT_FILENO, buffer, nread);
+        }
     }
 
     end_tls(tls);
     close(sock);
+    if (status_code / 100 == 3)
+        return redirect(get_header(buffer, "Location:"));
     return status_code;
 }
 
@@ -242,10 +231,15 @@ int main(int argc, char **argv) {
     if (argc != 2)
         fail("usage: hget <url>", EUSAGE);
     int status = hget(argv[1]);
-
-    if (status >= 200 && status <= 299 && status != 203)
+    if (status / 100 == 2)
         return OK;
+
+    fprintf(stderr, "HTTP %d\n", status);
     if (status == 404 || status == 410)
         return ENOTFOUND;
-    return status / 100;
+    if (status / 100 == 4)
+        return EREQUEST;
+    if (status / 100 == 5)
+        return ESERVER;
+    return EFAIL;
 }

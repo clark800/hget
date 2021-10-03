@@ -38,11 +38,8 @@ To build with the `musl-gcc` wrapper, use e.g. `env CC=musl-gcc ./make`.
 # Return codes
 
 * 0 - OK
-* 1 - 1xx http response code
-* 2 - 203 http response code
-* 3 - 3xx http response code
-* 4 - 4xx http response code, except 404 or 410
-* 5 - 5xx http response code
-* 44 - resource not found or gone (404 or 410)
-* 254 - usage error
-* 255 - failure
+* 1 - failure
+* 2 - usage error
+* 3 - not found or gone (404 or 410)
+* 4 - request error (4xx, except 404 or 410)
+* 5 - server error (5xx)
