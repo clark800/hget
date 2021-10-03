@@ -14,13 +14,7 @@ static long long SIZE = 0, PROGRESS = 0;
 // status <= 127 indicates a valid http response
 enum {OK, E1XX, E2XX, E3XX, E4XX, E5XX, ENOTFOUND=44, EUSAGE=254, EFAIL=255};
 
-static int get_exit_status(long status) {
-    if (status >= 200 && status <= 299 && status != 203)
-        return OK;
-    if (status == 404 || status == 410)
-        return ENOTFOUND;
-    return status/100;
-}
+static int hget(char* url);
 
 static void fail(const char* message, int status) {
     fputs(message, stderr);
@@ -91,67 +85,6 @@ static ssize_t write_body(int fd, const void* buf, size_t len) {
     return n;
 }
 
-static long parse_status_line(char* response) {
-    if (response[0] == 0)
-        fail("error: no response", EFAIL);
-    if (strncmp(response, "HTTP/", 5) != 0)
-        fail("error: invalid http response", EFAIL);
-
-    char* space = strchr(response, ' ');
-    if (space == NULL)
-        fail("error: invalid http response", EFAIL);
-    long status_code = strtol(space+1, NULL, 10);
-    if (status_code < 100 || status_code >= 600)
-        fail("error: invalid http response", EFAIL);
-
-    if (get_exit_status(status_code) != OK) {
-        char* endline = strstr(space, "\r\n");
-        if (endline == NULL)
-            fail("error: invalid http response", EFAIL);
-        bwrite(STDERR_FILENO, response, endline - response);
-        bwrite(STDERR_FILENO, "\n", 1);
-    }
-    return status_code;
-}
-
-static char* parse_headers(char* response) {
-    char* endline = strstr(response, "\r\n");
-    while (endline != NULL) {
-        if (strncmp(endline, "\r\n\r\n", 4) == 0)
-            break; // end of headers
-        char* header = endline + 2;
-        if (strncmp(header, "Content-Length:", 15) == 0) {
-            char* value = header + 15;
-            if (!isatty(STDERR_FILENO))
-                SIZE = strtoll(value + strspn(value, " \t"), NULL, 10);
-        }
-        endline = strstr(header, "\r\n");
-    }
-
-    if (endline == NULL)
-        fail("error: response headers too long", EFAIL);
-
-    return endline + 4; // skip past \r\n\r\n
-}
-
-static long stream(int sock, TLS* tls, int fd) {
-    char buffer[8192];
-    ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
-    buffer[nread] = 0;
-
-    long status_code = parse_status_line(buffer);
-    char* body = parse_headers(buffer);
-
-    write_body(fd, body, nread - (body - buffer));
-
-    while (nread > 0) {
-        nread = sread(sock, tls, buffer, sizeof(buffer));
-        write_body(fd, buffer, nread);
-    }
-
-    return status_code;
-}
-
 static int conn(char* host, char* port) {
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
@@ -170,32 +103,106 @@ static int conn(char* host, char* port) {
     return sock;
 }
 
-static long get(int https, char* host, char* port, char* path) {
-    int sock = conn(host, port);
-    TLS* tls = https ? start_tls(sock, host) : NULL;
-
+static void send_request(int sock, TLS* tls, char* host, char* path) {
     swrite(sock, tls, "GET ");
     swrite(sock, tls, path);
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, host);
     swrite(sock, tls, "\r\nAccept-Encoding: identity\r\n\r\n");
-
-    long status = stream(sock, tls, STDOUT_FILENO);
-
-    if (tls)
-        end_tls(tls);
-    close(sock);
-    return status;
 }
 
-int main(int argc, char **argv) {
+static int parse_status_line(char* response) {
+    if (response[0] == 0)
+        fail("error: no response", EFAIL);
+    if (strncmp(response, "HTTP/", 5) != 0)
+        fail("error: invalid http response", EFAIL);
+
+    char* space = strchr(response, ' ');
+    if (space == NULL)
+        fail("error: invalid http response", EFAIL);
+    long status_code = strtol(space+1, NULL, 10);
+    if (status_code < 100 || status_code >= 600)
+        fail("error: invalid http response", EFAIL);
+
+    if (status_code >= 400) {
+        char* endline = strstr(space, "\r\n");
+        if (endline == NULL)
+            fail("error: invalid http response", EFAIL);
+        bwrite(STDERR_FILENO, response, endline - response);
+        bwrite(STDERR_FILENO, "\n", 1);
+    }
+    return status_code;
+}
+
+static char* get_header(char* response, char* name) {
+    char* endline = strstr(response, "\r\n");
+    while (endline != NULL) {
+        if (strncmp(endline, "\r\n\r\n", 4) == 0)
+            return NULL; // end of headers
+        char* header = endline + 2;
+        if (strncmp(header, name, strlen(name)) == 0) {
+            char* value = header + strlen(name);
+            return value + strspn(value, " \t");
+        }
+        endline = strstr(header, "\r\n");
+    }
+    fail("error: response headers too long", EFAIL);
+    return NULL;
+}
+
+static char* skip_head(char* response) {
+    char* end = strstr(response, "\r\n\r\n");
+    if (end == NULL)
+        fail("error: response headers too long", EFAIL);
+    return end + 4;
+}
+
+static int redirect(char* location) {
+    if (location == NULL)
+        fail("error: redirect missing location", E3XX);
+    char* endline = strstr(location, "\r\n");
+    if (endline == NULL)
+        fail("error: response headers too long", EFAIL);
+    endline[0] = '\0';
+    return hget(location);
+}
+
+static int get(int https, char* host, char* port, char* path) {
+    char buffer[8192];
+    int sock = conn(host, port);
+    TLS* tls = https ? start_tls(sock, host) : NULL;
+    send_request(sock, tls, host, path);
+
+    ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
+    buffer[nread] = 0;
+
+    int status_code = parse_status_line(buffer);
+    if (status_code / 100 == 3 && status_code != 304) {
+        end_tls(tls);
+        close(sock);
+        return redirect(get_header(buffer, "Location:"));
+    }
+    if (!isatty(STDERR_FILENO)) {
+        char* length = get_header(buffer, "Content-Length:");
+        if (length != NULL)
+            SIZE = strtoll(length, NULL, 10);
+    }
+
+    char* body = skip_head(buffer);
+    write_body(STDOUT_FILENO, body, nread - (body - buffer));
+    while (nread > 0) {
+        nread = sread(sock, tls, buffer, sizeof(buffer));
+        write_body(STDOUT_FILENO, buffer, nread);
+    }
+
+    end_tls(tls);
+    close(sock);
+    return status_code;
+}
+
+static int hget(char* url) {
     int https = 0;
     char host[256], authority[512];
-
-    if (argc != 2)
-        fail("usage: hget <url>", EUSAGE);
-
-    char* url = argv[1];
 
     // skip past optional scheme and separator
     char* sep = strstr(url, "://");
@@ -228,5 +235,17 @@ int main(int argc, char **argv) {
     strncpy(host, authority, hostlen);
     host[hostlen] = '\0';
 
-    return get_exit_status(get(https, host, port, path));
+    return get(https, host, port, path);
+}
+
+int main(int argc, char **argv) {
+    if (argc != 2)
+        fail("usage: hget <url>", EUSAGE);
+    int status = hget(argv[1]);
+
+    if (status >= 200 && status <= 299 && status != 203)
+        return OK;
+    if (status == 404 || status == 410)
+        return ENOTFOUND;
+    return status / 100;
 }

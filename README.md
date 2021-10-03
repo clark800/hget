@@ -1,10 +1,12 @@
 # Introduction
 
-hget is a minimalist HTTP/HTTPS GET client written in C. It takes a URL, performs a GET request, and sends the response body to stdout. If the HTTP status code is not a valid 2xx code, the first line of the response is sent to stderr in addition to the body being sent to stdout.
+hget is a minimalist HTTP/HTTPS download utility written in C.
+It takes a URL, performs a GET request, and sends the response body to stdout.
+It automatically follows redirects.
+It does not support compression, authentication, or other http methods.
 
-hget does not support compression, authentication, redirection, or other http methods.
-
-hget is about 300 lines of code and compiles with musl to a 54KB static binary without https support, or a 174KB static binary with https support.
+hget is about 300 lines of code and compiles with musl to a 54KB static binary
+without https support, or a 218KB static binary with https support.
 
 
 # Usage
