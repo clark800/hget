@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include <errno.h>
 #include <netdb.h>
 #include <sys/types.h>
@@ -17,7 +18,7 @@ typedef struct {
     char *scheme, *userinfo, *host, *port, *pathquery, *fragment;
 } URL;
 
-static int get(URL url);
+static int get(URL url, char* dest);
 
 static void fail(const char* message, int status) {
     fputs(message, stderr);
@@ -194,17 +195,26 @@ static char* skip_head(char* response) {
     return end + 4;
 }
 
-static int redirect(char* location) {
+static int redirect(char* location, char* dest) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return get(parse_url(location));
+    return get(parse_url(location), dest);
 }
 
-static int get(URL url) {
+static int open_file(char* dest) {
+    int out = STDOUT_FILENO;
+    if (dest)
+        out = open(dest, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (out < 0)
+        sfail("open failed");
+    return out;
+}
+
+static int get(URL url, char* dest) {
     char buffer[8192];
     int sock = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
@@ -222,24 +232,27 @@ static int get(URL url) {
                 SIZE = strtoll(length, NULL, 10);
         }
         char* body = skip_head(buffer);
-        write_body(STDOUT_FILENO, body, nread - (body - buffer));
+        int out = open_file(dest);
+        write_body(out, body, nread - (body - buffer));
         while (nread > 0) {
             nread = sread(sock, tls, buffer, sizeof(buffer));
-            write_body(STDOUT_FILENO, buffer, nread);
+            write_body(out, buffer, nread);
         }
+        close(out);
     }
 
     end_tls(tls);
     close(sock);
     if (status_code / 100 == 3)
-        return redirect(get_header(buffer, "Location:"));
+        return redirect(get_header(buffer, "Location:"), dest);
     return status_code;
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2)
-        fail("usage: hget <url>", EUSAGE);
-    int status = get(parse_url(argv[1]));
+    if (argc != 2 && argc != 3)
+        fail("usage: hget <url> [<dest>]", EUSAGE);
+
+    int status = get(parse_url(argv[1]), argv[2]);
     if (status / 100 == 2)
         return OK;
 

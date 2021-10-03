@@ -1,8 +1,8 @@
 # Introduction
 
 hget is a minimalist HTTP/HTTPS download utility written in C.
-It takes a URL, performs a GET request, and sends the response body to stdout.
-It automatically follows redirects.
+It takes a URL, performs a GET request, and sends the response body to stdout
+or a specified file. It automatically follows redirects.
 It does not support compression, authentication, or other http methods.
 
 hget is about 300 lines of code and compiles with musl to a 54KB static binary
@@ -11,13 +11,11 @@ without https support, or a 218KB static binary with https support.
 
 # Usage
 
-    hget http://example.com > download.html
-    hget example.com > download.html
-    hget example.com:8080/path/to/image.jpg > image.jpg
+    hget <url> [<dest>]
 
 A script called `dl` is included which shows a progress bar for downloads using [bar](https://github.com/clark800/bar).
 
-    dl example.com/file.ext
+    dl <url>
 
 
 # Building
