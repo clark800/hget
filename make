@@ -1,9 +1,10 @@
 #!/bin/sh
 
 case "$1" in
+    '') SOURCES="hget.c stub.c"; LIBS="";;
     bearssl) SOURCES="hget.c tls.c"; LIBS="-ltls -lbearssl";;
     libressl) SOURCES="hget.c tls.c"; LIBS="-ltls";;
-    '') SOURCES="hget.c stub.c"; LIBS="";;
+    clean) rm -f hget; exit 0;;
     *) echo "unrecognized target" >&2; exit 1;;
 esac
 

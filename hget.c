@@ -86,7 +86,7 @@ static ssize_t write_body(int fd, const void* buf, size_t len) {
     if (n > 0) {
         PROGRESS += n;
         if (SIZE > 0)
-            fprintf(stderr, "%lld %lld\n", PROGRESS, SIZE);
+            printf("%lld %lld\n", PROGRESS, SIZE);
     }
     return n;
 }
@@ -236,7 +236,7 @@ static int get(URL url, char* dest) {
 
     int status_code = parse_status_line(buffer);
     if (status_code / 100 == 2) {
-        if (!isatty(STDERR_FILENO)) {
+        if (dest && !isatty(STDOUT_FILENO)) {
             char* length = get_header(buffer, "Content-Length:");
             if (length != NULL)
                 SIZE = strtoll(length, NULL, 10);
@@ -248,7 +248,10 @@ static int get(URL url, char* dest) {
             nread = sread(sock, tls, buffer, sizeof(buffer));
             write_body(out, buffer, nread);
         }
-        close(out);
+        if (fsync(out) != 0)
+            sfail("sync failed");
+        if (close(out) != 0)
+            sfail("close failed");
     }
 
     end_tls(tls);

@@ -5,7 +5,7 @@
 
 static void stub(void) {
     fputs("https not supported\n", stderr);
-    exit(5);
+    exit(1);
 }
 
 TLS* start_tls(int sock, const char* host) {

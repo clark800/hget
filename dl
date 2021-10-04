@@ -1,32 +1,6 @@
-#!/bin/sh
-
-set -e
+#!/bin/sh -e
 
 url="$1"
-filename="${url##*/}"
+dest="${2:-"$(basename "$url")"}"
 
-if [ ! "$filename" ]; then
-    echo "usage: ${0##*/} <url>"
-    exit 1
-fi
-
-if [ -e "$filename" ]; then
-    echo "Error: file already exists at destination" >&2
-    exit 1
-fi
-
-temp="/tmp/$filename.dl"
-
-cleanup() {
-    rm -f "$temp"
-}
-
-trap cleanup EXIT
-
-if command -v bar > /dev/null 2>&1; then
-    hget "$url" 2>&1 > "$temp" | bar "$filename"
-else
-    hget "$url" > "$temp"
-fi
-
-mv "$temp" "$filename"
+hget "$url" "$dest" | bar
