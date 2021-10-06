@@ -17,7 +17,7 @@ static long long SIZE = 0, PROGRESS = 0;
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 typedef struct {
-    char *scheme, *userinfo, *host, *port, *pathquery, *fragment;
+    char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
 static int get(URL url, char* dest, FILE* pipe);
@@ -91,46 +91,52 @@ static ssize_t write_body(int fd, const void* buf, size_t len, FILE* pipe) {
     return n;
 }
 
-static URL parse_url(char* url) {
-    URL result = {.scheme="http", .userinfo="", .pathquery="", .fragment=""};
-    result.port = strncmp(url, "https://", 8) == 0 ? "443" : "80";
+static URL parse_url(char* str) {
+    URL url = {.scheme="http", .userinfo="", .path="", .query="", .fragment=""};
+    url.port = strncmp(str, "https://", 8) == 0 ? "443" : "80";
 
     // fragment can contain any character, so chop off first
-    char* hash = strchr(url, '#');
+    char* hash = strchr(str, '#');
     if (hash) {
         hash[0] = '\0';
-        result.fragment = hash + 1;
+        url.fragment = hash + 1;
     }
 
-    char* sep = strstr(url, "://");
-    if (sep && sep < strchr(url, '/')) {
+    char* question = strchr(str, '?');
+    if (question) {
+        question[0] = '\0';
+        url.query = question + 1;
+    }
+
+    char* sep = strstr(str, "://");
+    if (sep && sep < strchr(str, '/')) {
         sep[0] = '\0';
-        result.scheme = url;
-        url = sep + 3;
+        url.scheme = str;
+        str = sep + 3;
     }
 
     // path can contain '@' and ':', so chop off first
-    char* slash = strchr(url, '/');
+    char* slash = strchr(str, '/');
     if (slash) {
         slash[0] = '\0';
-        result.pathquery = slash + 1;
+        url.path = slash + 1;
     }
 
-    char* at = strchr(url, '@');
+    char* at = strchr(str, '@');
     if (at) {
         at[0] = '\0';
-        result.userinfo = url;
-        url = at + 1;
+        url.userinfo = str;
+        str = at + 1;
     }
 
-    char* colon = strchr(url, ':');
+    char* colon = strchr(str, ':');
     if (colon) {
         colon[0] = '\0';
-        result.port = colon + 1;
+        url.port = colon + 1;
     }
 
-    result.host = url;
-    return result;
+    url.host = str;
+    return url;
 }
 
 static int conn(char* host, char* port) {
@@ -151,13 +157,17 @@ static int conn(char* host, char* port) {
     return sock;
 }
 
-static void request(int sock, TLS* tls, char* host, char* pathq, char* dest) {
+static void request(int sock, TLS* tls, URL url, char* dest) {
     struct stat sb;
     swrite(sock, tls, "GET /");
-    swrite(sock, tls, pathq);
+    swrite(sock, tls, url.path);
+    if (url.query[0]) {
+        swrite(sock, tls, "?");
+        swrite(sock, tls, url.query);
+    }
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
-    swrite(sock, tls, host);
-    if (dest && stat(dest, &sb) == 0) {
+    swrite(sock, tls, url.host);
+    if (strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
         char buffer[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
@@ -216,9 +226,9 @@ static int redirect(char* location, char* dest, FILE* pipe) {
 }
 
 static int open_file(char* dest) {
-    int out = STDOUT_FILENO;
-    if (dest)
-        out = open(dest, O_WRONLY | O_CREAT | O_TRUNC, 0666);
+    if (strcmp(dest, "-") == 0)
+        return STDOUT_FILENO;
+    int out = open(dest, O_WRONLY | O_CREAT | O_TRUNC, 0666);
     if (out < 0)
         sfail("open failed");
     return out;
@@ -229,7 +239,7 @@ static int get(URL url, char* dest, FILE* pipe) {
     int sock = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
     TLS* tls = https ? start_tls(sock, url.host) : NULL;
-    request(sock, tls, url.host, url.pathquery, dest);
+    request(sock, tls, url, dest);
 
     ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
     buffer[nread] = 0;
@@ -256,6 +266,12 @@ static int get(URL url, char* dest, FILE* pipe) {
     return status_code;
 }
 
+static char* get_filename(char* path) {
+    char* slash = strrchr(path, '/');
+    char* filename = slash ? slash + 1 : path;
+    return filename[0] ? filename : "index.html";
+}
+
 int main(int argc, char **argv) {
     if (argc != 2 && argc != 3)
         fail("usage: hget <url> [<dest>]", EUSAGE);
@@ -263,12 +279,14 @@ int main(int argc, char **argv) {
     // use fd 3 for progress updates if it has been opened
     FILE* pipe = fcntl(3, F_GETFD) != -1 ? fdopen(3, "w") : NULL;
 
-    int status = get(parse_url(argv[1]), argv[2], pipe);
+    URL url = parse_url(argv[1]);
+    char* dest = argc > 2 && argv[2][0] ? argv[2] : get_filename(url.path);
+    int status = get(url, dest, pipe);
 
     if (pipe)
         fclose(pipe);
 
-    if (status / 100 == 2 || (status == 304 && argc == 3))
+    if (status / 100 == 2 || status == 304)
         return OK;
 
     fprintf(stderr, "HTTP %d\n", status);

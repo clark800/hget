@@ -1,24 +1,29 @@
 # Introduction
 
 hget is a minimalist HTTP/HTTPS download utility written in C.
-It takes a URL, performs a GET request, and sends the response body to stdout
-or a specified file. It automatically follows redirects. If the destination
-file exists, it will only be downloaded if the modification time on the server
-is newer than the modification time of the file (using If-Modified-Since).
-It does not support compression, authentication, proxying, or other http methods.
 
-hget is about 300 lines of code and compiles with musl to a 62KB static binary
-without https support, or a 230KB static binary with https support.
+#### Features
+* Download progress can be piped to a progress bar utility.
+* Automatically follows HTTP 3xx redirects.
+* If the destination file exists, it will only be downloaded if the modification
+  time on the server is newer than the modification time of the local file
+  (using the If-Modified-Since header).
+* Exit status codes are more helpful than curl defaults.
+
+#### Size
+* About 300 lines of code
+* 62KB static binary without https support
+* 230KB static binary with https support
 
 
 # Usage
 
     hget <url> [<dest>]
 
-A script called `dl` is included which shows a progress bar for downloads
-using [bar](https://github.com/clark800/bar).
+To send output to stdout, set `dest` to `-`.
 
-    dl <url>
+A script called `hget.sh` is included which can be sourced into your shell to
+make `hget` show a progress bar using [bar](https://github.com/clark800/bar).
 
 
 # Building
