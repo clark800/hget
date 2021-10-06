@@ -20,7 +20,7 @@ typedef struct {
     char *scheme, *userinfo, *host, *port, *pathquery, *fragment;
 } URL;
 
-static int get(URL url, char* dest);
+static int get(URL url, char* dest, FILE* pipe);
 
 static void fail(const char* message, int status) {
     fputs(message, stderr);
@@ -79,14 +79,14 @@ static void swrite(int fd, TLS* tls, const char* buf) {
         sfail("send failed");
 }
 
-static ssize_t write_body(int fd, const void* buf, size_t len) {
+static ssize_t write_body(int fd, const void* buf, size_t len, FILE* pipe) {
     ssize_t n = bwrite(fd, buf, len);
     if (n < 0)
         sfail("write failed");
     if (n > 0) {
         PROGRESS += n;
-        if (SIZE > 0)
-            printf("%lld %lld\n", PROGRESS, SIZE);
+        if (pipe && SIZE > 0)
+            fprintf(pipe, "%lld %lld\n", PROGRESS, SIZE);
     }
     return n;
 }
@@ -205,14 +205,14 @@ static char* skip_head(char* response) {
     return end + 4;
 }
 
-static int redirect(char* location, char* dest) {
+static int redirect(char* location, char* dest, FILE* pipe) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return get(parse_url(location), dest);
+    return get(parse_url(location), dest, pipe);
 }
 
 static int open_file(char* dest) {
@@ -224,7 +224,7 @@ static int open_file(char* dest) {
     return out;
 }
 
-static int get(URL url, char* dest) {
+static int get(URL url, char* dest, FILE* pipe) {
     char buffer[8192];
     int sock = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
@@ -236,20 +236,15 @@ static int get(URL url, char* dest) {
 
     int status_code = parse_status_line(buffer);
     if (status_code / 100 == 2) {
-        if (dest && !isatty(STDOUT_FILENO)) {
-            char* length = get_header(buffer, "Content-Length:");
-            if (length != NULL)
-                SIZE = strtoll(length, NULL, 10);
-        }
+        char* length = get_header(buffer, "Content-Length:");
+        SIZE = length ? strtoll(length, NULL, 10) : 0;
         char* body = skip_head(buffer);
         int out = open_file(dest);
-        write_body(out, body, nread - (body - buffer));
+        write_body(out, body, nread - (body - buffer), pipe);
         while (nread > 0) {
             nread = sread(sock, tls, buffer, sizeof(buffer));
-            write_body(out, buffer, nread);
+            write_body(out, buffer, nread, pipe);
         }
-        if (fsync(out) != 0)
-            sfail("sync failed");
         if (close(out) != 0)
             sfail("close failed");
     }
@@ -257,7 +252,7 @@ static int get(URL url, char* dest) {
     end_tls(tls);
     close(sock);
     if (status_code / 100 == 3 && status_code != 304)
-        return redirect(get_header(buffer, "Location:"), dest);
+        return redirect(get_header(buffer, "Location:"), dest, pipe);
     return status_code;
 }
 
@@ -265,7 +260,14 @@ int main(int argc, char **argv) {
     if (argc != 2 && argc != 3)
         fail("usage: hget <url> [<dest>]", EUSAGE);
 
-    int status = get(parse_url(argv[1]), argv[2]);
+    // use fd 3 for progress updates if it has been opened
+    FILE* pipe = fcntl(3, F_GETFD) != -1 ? fdopen(3, "w") : NULL;
+
+    int status = get(parse_url(argv[1]), argv[2], pipe);
+
+    if (pipe)
+        fclose(pipe);
+
     if (status / 100 == 2 || (status == 304 && argc == 3))
         return OK;
 

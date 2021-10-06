@@ -4,6 +4,7 @@ case "$1" in
     '') SOURCES="hget.c stub.c"; LIBS="";;
     bearssl) SOURCES="hget.c tls.c"; LIBS="-ltls -lbearssl";;
     libressl) SOURCES="hget.c tls.c"; LIBS="-ltls";;
+    sloc) gcc -fpreprocessed -dD -E -P *.c *.h | wc -l; exit 0;;
     clean) rm -f hget; exit 0;;
     *) echo "unrecognized target" >&2; exit 1;;
 esac

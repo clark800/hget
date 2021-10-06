@@ -15,7 +15,8 @@ without https support, or a 230KB static binary with https support.
 
     hget <url> [<dest>]
 
-A script called `dl` is included which shows a progress bar for downloads using [bar](https://github.com/clark800/bar).
+A script called `dl` is included which shows a progress bar for downloads
+using [bar](https://github.com/clark800/bar).
 
     dl <url>
 
