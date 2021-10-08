@@ -225,7 +225,8 @@ static int get(URL url, char* dest, FILE* bar) {
             sfail("close failed");
     }
 
-    end_tls(tls);
+    if (tls)
+        end_tls(tls);
     fclose(sock);
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"), dest, bar);
