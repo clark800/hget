@@ -3,7 +3,7 @@
 #include <tls.h>
 #include "tls.h"
 
-enum {EFAIL = 255};
+enum {EFAIL = 1};
 
 static void fail(const char* message, struct tls* tls) {
     fputs(message, stderr);
