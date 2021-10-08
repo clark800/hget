@@ -33,62 +33,27 @@ static void sfail(const char* message) {
     exit(EFAIL);
 }
 
-// blocking read, always fills buffer or reaches eof or returns an error
-static ssize_t bread(int fd, void* buf, size_t len) {
-    size_t i = 0;
-    for (ssize_t n = 0; i < len; i += n) {
-        n = read(fd, (char*)buf + i, len - i);
-        if (n == 0)
-            return i;   // end of file
-        if (n < 0) {
-            if (errno == EINTR)
-                n = 0;  // try again
-            else
-                return -1;
-        }
-    }
-    return i;
-}
-
-// blocking write, always sends full buffer or returns an error
-static ssize_t bwrite(int fd, const void* buf, size_t len) {
-    ssize_t n = 0;
-    for (size_t i = 0; i < len; i += n) {
-        n = write(fd, (const char*)buf + i, len - i);
-        if (n < 0) {
-            if (errno == EINTR)
-                n = 0;  // try again
-            else
-                return -1;
-        }
-    }
-    return n;
-}
-
-static ssize_t sread(int fd, TLS* tls, void* buf, size_t len) {
-    ssize_t n = tls ? read_tls(tls, buf, len) : bread(fd, buf, len);
-    if (n < 0)
+static size_t sread(FILE* sock, TLS* tls, void* buf, size_t len) {
+    size_t n = tls ? read_tls(tls, buf, len) : fread(buf, 1, len, sock);
+    if (!tls && ferror(sock))
         sfail("receive failed");
     return n;
 }
 
-static void swrite(int fd, TLS* tls, const char* buf) {
+static void swrite(FILE* sock, TLS* tls, const char* buf) {
+    size_t size = strlen(buf);
     if (tls) {
-        write_tls(tls, buf, strlen(buf));
-    } else if (bwrite(fd, buf, strlen(buf)) < 0)
+        write_tls(tls, buf, size);
+    } else if (fwrite(buf, 1, size, sock) < size)
         sfail("send failed");
 }
 
-static ssize_t write_body(int fd, const void* buf, size_t len, FILE* bar) {
-    ssize_t n = bwrite(fd, buf, len);
-    if (n < 0)
+static void write_body(FILE* out, const void* buf, size_t len, FILE* bar) {
+    if (fwrite(buf, 1, len, out) != len)
         sfail("write failed");
-    if (n > 0) {
-        PROGRESS += n;
-        if (bar && SIZE > 0)
-            fprintf(bar, "%lld %lld\n", PROGRESS, SIZE);
-    }
-    return n;
+    PROGRESS += len;
+    if (bar && SIZE > 0)
+        fprintf(bar, "%lld %lld\n", PROGRESS, SIZE);
 }
 
 static URL parse_url(char* str) {
@@ -144,20 +109,20 @@ static int conn(char* host, char* port) {
     if (getaddrinfo(host, port, &hints, &server) != 0)
         sfail("getaddrinfo failed");
 
-    int sock = socket(server->ai_family, server->ai_socktype,
+    int sockfd = socket(server->ai_family, server->ai_socktype,
         server->ai_protocol);
 
-    if (sock == -1)
+    if (sockfd == -1)
         sfail("socket create failed");
 
-    if (connect(sock, server->ai_addr, server->ai_addrlen) != 0)
+    if (connect(sockfd, server->ai_addr, server->ai_addrlen) != 0)
         sfail("connect failed");
 
     freeaddrinfo(server);
-    return sock;
+    return sockfd;
 }
 
-static void request(int sock, TLS* tls, URL url, char* dest) {
+static void request(FILE* sock, TLS* tls, URL url, char* dest) {
     struct stat sb;
     swrite(sock, tls, "GET /");
     swrite(sock, tls, url.path);
@@ -225,23 +190,27 @@ static int redirect(char* location, char* dest, FILE* bar) {
     return get(parse_url(location), dest, bar);
 }
 
-static int open_file(char* dest) {
+static FILE* open_file(char* dest) {
     if (strcmp(dest, "-") == 0)
-        return STDOUT_FILENO;
-    int out = open(dest, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-    if (out < 0)
+        return stdout;
+    FILE* out = fopen(dest, "w");
+    if (out == NULL)
         sfail("open failed");
     return out;
 }
 
 static int get(URL url, char* dest, FILE* bar) {
     char buffer[8192];
-    int sock = conn(url.host, url.port);
+    int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
-    TLS* tls = https ? start_tls(sock, url.host) : NULL;
+    TLS* tls = https ? start_tls(sockfd, url.host) : NULL;
+    FILE* sock = fdopen(sockfd, "rw+");
+    if (sock == NULL)
+        sfail("fdopen failed");
+
     request(sock, tls, url, dest);
 
-    ssize_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
+    size_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
     buffer[nread] = 0;
 
     int status_code = parse_status_line(buffer);
@@ -249,18 +218,18 @@ static int get(URL url, char* dest, FILE* bar) {
         char* length = get_header(buffer, "Content-Length:");
         SIZE = length ? strtoll(length, NULL, 10) : 0;
         char* body = skip_head(buffer);
-        int out = open_file(dest);
+        FILE* out = open_file(dest);
         write_body(out, body, nread - (body - buffer), bar);
         while (nread > 0) {
             nread = sread(sock, tls, buffer, sizeof(buffer));
             write_body(out, buffer, nread, bar);
         }
-        if (close(out) != 0)
+        if (fclose(out) != 0)
             sfail("close failed");
     }
 
     end_tls(tls);
-    close(sock);
+    fclose(sock);
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"), dest, bar);
     return status_code;

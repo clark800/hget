@@ -15,7 +15,7 @@ static void fail(const char* message, struct tls* tls) {
     exit(EFAIL);
 }
 
-ssize_t read_tls(TLS* tls, void* buf, size_t len) {
+size_t read_tls(TLS* tls, void* buf, size_t len) {
     size_t i = 0;
     for (ssize_t n = 0; i < len; i += n) {
         n = tls_read((struct tls*)tls, (char*)buf + i, len - i);
