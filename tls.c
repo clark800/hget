@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <tls.h>
 #include "tls.h"
 
@@ -15,8 +16,9 @@ static void fail(const char* message, struct tls* tls) {
     exit(EFAIL);
 }
 
-size_t read_tls(TLS* tls, void* buf, size_t len) {
-    size_t i = 0;
+// read_tls may read past stop, but it won't block if stop has been read
+size_t read_tls(TLS* tls, void* buf, size_t len, char* stop) {
+    size_t i = 0, stoplen = strlen(stop);
     for (ssize_t n = 0; i < len; i += n) {
         n = tls_read((struct tls*)tls, (char*)buf + i, len - i);
         if (n == 0)
@@ -25,6 +27,12 @@ size_t read_tls(TLS* tls, void* buf, size_t len) {
             n = 0;      // try again
         else if (n < 0)
             fail("receive failed", (struct tls*)tls);
+        if (i + n == len)
+            return len;    // ensure there is space for null terminator
+        ((char*)buf)[i + n] = '\0';
+        // stop could span a chunk boundary, so we must search before buf + i
+        if (stop && strstr(i <= stoplen ? buf : (char*)buf + i - stoplen, stop))
+            return i + n;
     }
     return i;
 }

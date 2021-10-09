@@ -9,8 +9,6 @@
 #include <sys/socket.h>
 #include "tls.h"
 
-static long long SIZE = 0, PROGRESS = 0;
-
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 typedef struct {
@@ -18,6 +16,10 @@ typedef struct {
 } URL;
 
 static int get(URL url, char* dest, FILE* bar);
+
+static size_t min(size_t a, size_t b) {
+    return a < b ? a : b;
+}
 
 static void fail(const char* message, int status) {
     fputs(message, stderr);
@@ -31,7 +33,7 @@ static void sfail(const char* message) {
 }
 
 static size_t sread(FILE* sock, TLS* tls, void* buf, size_t len) {
-    size_t n = tls ? read_tls(tls, buf, len) : fread(buf, 1, len, sock);
+    size_t n = tls ? read_tls(tls, buf, len, NULL) : fread(buf, 1, len, sock);
     if (!tls && ferror(sock))
         sfail("receive failed");
     return n;
@@ -45,12 +47,12 @@ static void swrite(FILE* sock, TLS* tls, const char* buf) {
         sfail("send failed");
 }
 
-static void write_body(FILE* out, const void* buf, size_t len, FILE* bar) {
+static void write_body(FILE* out, void* buf, size_t len,
+        size_t progress, size_t size, FILE* bar) {
     if (fwrite(buf, 1, len, out) != len)
         sfail("write failed");
-    PROGRESS += len;
-    if (bar && SIZE > 0)
-        fprintf(bar, "%lld %lld\n", PROGRESS, SIZE);
+    if (bar && len > 0 && size > 0)
+        fprintf(bar, "%zu %zu\n", progress + len, size);
 }
 
 static URL parse_url(char* str) {
@@ -196,6 +198,17 @@ static FILE* open_file(char* dest) {
     return out;
 }
 
+static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
+    if (tls)
+        return read_tls(tls, buf, len, "\r\n\r\n");
+
+    size_t n;
+    for (n = 0; n < len && fgets(buf + n, len - n, sock); n += strlen(buf + n))
+        if (strcmp(buf + n, "\r\n") == 0)
+            return n + 2;
+    return n;
+}
+
 static int get(URL url, char* dest, FILE* bar) {
     char buffer[8192];
     int sockfd = conn(url.host, url.port);
@@ -207,22 +220,27 @@ static int get(URL url, char* dest, FILE* bar) {
 
     request(sock, tls, url, dest);
 
-    size_t nread = sread(sock, tls, buffer, sizeof(buffer) - 1);
-    buffer[nread] = 0;
+    size_t N = sizeof(buffer);
+    size_t n = read_head(sock, tls, buffer, N);
+    buffer[n] = '\0';
 
     int status_code = parse_status_line(buffer);
     if (status_code / 100 == 2) {
         char* length = get_header(buffer, "Content-Length:");
-        SIZE = length ? strtoll(length, NULL, 10) : 0;
+        size_t size = length ? strtoll(length, NULL, 10) : 0;
         char* body = skip_head(buffer);
         FILE* out = open_file(dest);
-        write_body(out, body, nread - (body - buffer), bar);
-        while (nread > 0) {
-            nread = sread(sock, tls, buffer, sizeof(buffer));
-            write_body(out, buffer, nread, bar);
+        size_t headlen = body - buffer;
+        write_body(out, body, n - headlen, 0, size, bar);
+        size_t progress = n - headlen;
+        for (n = N; n == N && (size == 0 || progress < size); progress += n) {
+            n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
+            write_body(out, buffer, n, progress, size, bar);
         }
         if (fclose(out) != 0)
             sfail("close failed");
+        if (size && progress != size)
+            fail("connection closed before all data was received", EFAIL);
     }
 
     if (tls)
@@ -239,7 +257,7 @@ static char* get_filename(char* path) {
     return filename[0] ? filename : "index.html";
 }
 
-int main(int argc, char **argv) {
+int main(int argc, char *argv[]) {
     if (argc < 2 || argc > 3 || argv[1][0] == '-')
         fail("usage: hget <url> [<dest>]", EUSAGE);
 
