@@ -253,8 +253,7 @@ static int get(URL url, char* dest, FILE* bar) {
 
 static char* get_filename(char* path) {
     char* slash = strrchr(path, '/');
-    char* filename = slash ? slash + 1 : path;
-    return filename[0] ? filename : "index.html";
+    return slash ? slash + 1 : path;
 }
 
 int main(int argc, char *argv[]) {
@@ -265,7 +264,9 @@ int main(int argc, char *argv[]) {
     FILE* bar = fcntl(3, F_GETFD) != -1 ? fdopen(3, "w") : NULL;
 
     URL url = parse_url(argv[1]);
-    char* dest = argc > 2 && argv[2][0] ? argv[2] : get_filename(url.path);
+    char* dest = argc > 2 ? argv[2] : get_filename(url.path);
+    if (dest[0] == '\0')
+        fail("error: filename not found", EUSAGE);
     int status = get(url, dest, bar);
 
     if (bar)
