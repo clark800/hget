@@ -18,7 +18,7 @@ static void fail(const char* message, struct tls* tls) {
 
 // read_tls may read past stop, but it won't block if stop has been read
 size_t read_tls(TLS* tls, void* buf, size_t len, char* stop) {
-    size_t i = 0, stoplen = strlen(stop);
+    size_t i = 0, stoplen = stop ? strlen(stop) : 0;
     for (ssize_t n = 0; i < len; i += n) {
         n = tls_read((struct tls*)tls, (char*)buf + i, len - i);
         if (n == 0)
