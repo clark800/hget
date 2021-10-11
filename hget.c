@@ -281,7 +281,11 @@ static FILE* open_pipe(char* command, char* arg) {
             sfail(command);
     }
     close(fd[0]);
-    return fdopen(fd[1], "w");
+    FILE* file = fdopen(fd[1], "w");
+    if (file == NULL)
+        sfail("fdopen failed");
+    setbuf(file, NULL);
+    return file;
 }
 
 int main(int argc, char *argv[]) {
