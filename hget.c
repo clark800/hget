@@ -5,8 +5,11 @@
 #include <time.h>
 #include <fcntl.h>
 #include <netdb.h>
+#include <signal.h>
+#include <unistd.h>
 #include <sys/stat.h>
 #include <sys/socket.h>
+#include <sys/wait.h>
 #include "tls.h"
 
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
@@ -256,12 +259,36 @@ static char* get_filename(char* path) {
     return slash ? slash + 1 : path;
 }
 
+static FILE* open_pipe(char* command, char* arg) {
+    int fd[2] = {0, 0};  // fd[0] is read end, fd[1] is write end
+
+    if (command == NULL)
+        return NULL;
+    if (pipe(fd) != 0)
+        sfail("pipe failed");
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+        sfail("signal failed");
+
+    switch (fork()) {
+        case -1:
+            sfail("fork failed");
+            return NULL;
+        case 0:  // child
+            close(fd[1]);
+            dup2(fd[0], STDIN_FILENO);
+            close(fd[0]);
+            execlp(command, arg);
+            sfail(command);
+    }
+    close(fd[0]);
+    return fdopen(fd[1], "w");
+}
+
 int main(int argc, char *argv[]) {
     if (argc < 2 || argc > 3 || argv[1][0] == '-')
         fail("usage: hget <url> [<dest>]", EUSAGE);
 
-    // use fd 3 for progress updates if it has been opened
-    FILE* bar = fcntl(3, F_GETFD) != -1 ? fdopen(3, "w") : NULL;
+    FILE* bar = open_pipe(getenv("PROGRESS"), argv[1]);
 
     URL url = parse_url(argv[1]);
     char* dest = argc > 2 ? argv[2] : get_filename(url.path);
@@ -269,8 +296,10 @@ int main(int argc, char *argv[]) {
         fail("error: filename not found", EUSAGE);
     int status = get(url, dest, bar);
 
-    if (bar)
-        fclose(bar);
+    if (bar) {
+        fclose(bar); // this will cause bar to get EOF and exit soon
+        wait(NULL);  // wait for bar to finish drawing
+    }
 
     if (status / 100 == 2 || status == 304)
         return OK;

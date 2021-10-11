@@ -3,7 +3,7 @@
 hget is a minimalist HTTP/HTTPS download utility written in C.
 
 #### Features
-* Download progress can be piped to a progress bar utility.
+* Download progress can be sent to an external progress bar utility.
 * Automatically follows HTTP 3xx redirects.
 * If the destination file exists, it will only be downloaded if the modification
   time on the server is newer than the modification time of the local file
@@ -12,8 +12,8 @@ hget is a minimalist HTTP/HTTPS download utility written in C.
 
 #### Size
 * About 300 lines of code
-* 62KB static binary without https support
-* 230KB static binary with https support
+* 66KB static binary without https support
+* 234KB static binary with https support
 
 
 # Usage
@@ -22,8 +22,9 @@ hget is a minimalist HTTP/HTTPS download utility written in C.
 
 To send output to stdout, set `dest` to `-`.
 
-A script called `hget.sh` is included which can be sourced into your shell to
-make `hget` show a progress bar using [bar](https://github.com/clark800/bar).
+To show a progress bar, install a progress bar utility like
+[bar](https://github.com/clark800/bar) and set the `PROGRESS` environment
+variable to the name of the utility.
 
 
 # Building
