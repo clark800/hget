@@ -11,7 +11,7 @@ hget is a minimalist HTTP/HTTPS download utility written in C.
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* About 300 lines of code
+* About 350 lines of code
 * 66KB static binary without https support
 * 234KB static binary with https support
 

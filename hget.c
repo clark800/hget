@@ -24,10 +24,11 @@ static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
 }
 
-static void fail(const char* message, int status) {
+static void* fail(const char* message, int status) {
     fputs(message, stderr);
     fputs("\n", stderr);
     exit(status);
+    return NULL;
 }
 
 static void sfail(const char* message) {
@@ -171,8 +172,7 @@ static char* get_header(char* response, char* name) {
         }
         endline = strstr(header, "\r\n");
     }
-    fail("error: response headers too long", EFAIL);
-    return NULL;
+    return fail("error: response headers too long", EFAIL);
 }
 
 static char* skip_head(char* response) {
@@ -217,7 +217,7 @@ static int get(URL url, char* dest, FILE* bar) {
     int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
     TLS* tls = https ? start_tls(sockfd, url.host) : NULL;
-    FILE* sock = fdopen(sockfd, "rw+");
+    FILE* sock = fdopen(sockfd, "r+");
     if (sock == NULL)
         sfail("fdopen failed");
 
@@ -262,7 +262,7 @@ static char* get_filename(char* path) {
 static FILE* open_pipe(char* command, char* arg) {
     int fd[2] = {0, 0};  // fd[0] is read end, fd[1] is write end
 
-    if (command == NULL)
+    if (command == NULL || command[0] == '\0')
         return NULL;
     if (pipe(fd) != 0)
         sfail("pipe failed");
@@ -276,6 +276,7 @@ static FILE* open_pipe(char* command, char* arg) {
         case 0:  // child
             close(fd[1]);
             dup2(fd[0], STDIN_FILENO);
+            dup2(STDERR_FILENO, STDOUT_FILENO);
             close(fd[0]);
             execlp(command, arg);
             sfail(command);
