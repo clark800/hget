@@ -318,7 +318,7 @@ int main(int argc, char *argv[]) {
     char* arg = argv[optind++];
     URL url = parse_url(arg);
 
-    if (strcmp(dest, "-") != 0 && isdir(dest)) {
+    if (dest != NULL && strcmp(dest, "-") != 0 && isdir(dest)) {
         if (chdir(dest) != 0)
             fail("Directory is not accessible", EUSAGE);
         dest = get_filename(url.path);
