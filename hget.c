@@ -24,6 +24,16 @@ static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
 }
 
+static int isdir(const char* path) {
+    // "If the named file is a symbolic link, the stat() function shall
+    // continue pathname resolution using the contents of the symbolic link,
+    // and shall return information pertaining to the resulting file if the
+    // file exists."
+    // (https://pubs.opengroup.org/onlinepubs/000095399/functions/stat.html)
+    struct stat sb;
+    return path != NULL && stat(path, &sb) == 0 && (sb.st_mode & S_IFDIR);
+}
+
 static void* fail(const char* message, int status) {
     fputs(message, stderr);
     fputs("\n", stderr);
@@ -135,7 +145,7 @@ static void request(FILE* sock, TLS* tls, URL url, char* dest) {
     }
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, url.host);
-    if (strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
+    if (dest != NULL && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
         char buffer[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
@@ -193,7 +203,7 @@ static int redirect(char* location, char* dest, FILE* bar) {
 }
 
 static FILE* open_file(char* dest) {
-    if (strcmp(dest, "-") == 0)
+    if (dest == NULL || strcmp(dest, "-") == 0)
         return stdout;
     FILE* out = fopen(dest, "w");
     if (out == NULL)
@@ -290,15 +300,33 @@ static FILE* open_pipe(char* command, char* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    if (argc < 2 || argc > 3 || argv[1][0] == '-')
-        fail("usage: hget <url> [<dest>]", EUSAGE);
+    int opt = 0;
+    char* dest = NULL;
+    while ((opt = getopt(argc, argv, "o:")) != -1) {
+        switch (opt) {
+            case 'o':
+                dest = optarg;
+                break;
+            default:
+                exit(EUSAGE);
+        }
+    }
 
-    FILE* bar = open_pipe(getenv("PROGRESS"), argv[1]);
+    if (optind != argc - 1)
+        fail("usage: hget [-o <FILE>] <url>", EUSAGE);
 
-    URL url = parse_url(argv[1]);
-    char* dest = argc > 2 ? argv[2] : get_filename(url.path);
-    if (dest[0] == '\0')
-        fail("error: filename not found", EUSAGE);
+    char* arg = argv[optind++];
+    URL url = parse_url(arg);
+
+    if (strcmp(dest, "-") != 0 && isdir(dest)) {
+        if (chdir(dest) != 0)
+            fail("Directory is not accessible", EUSAGE);
+        dest = get_filename(url.path);
+        if (dest == NULL || dest[0] == '\0')
+            dest = "index.html";
+    }
+
+    FILE* bar = open_pipe(getenv("PROGRESS"), arg);
     int status = get(url, dest, bar);
 
     if (bar) {
