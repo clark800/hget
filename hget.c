@@ -301,10 +301,14 @@ static FILE* open_pipe(char* command, char* arg) {
 
 int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0;
-    char* dest = NULL;
-    while ((opt = getopt(argc, argv, "o:q")) != -1) {
+    int wget = strcmp(get_filename(argv[0]), "wget") == 0;
+    char* dest = wget ? "." : NULL;
+    const char* opts = wget ? "O:q" : "o:q";
+
+    while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
             case 'o':
+            case 'O':
                 dest = optarg;
                 break;
             case 'q':
