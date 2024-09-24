@@ -300,12 +300,15 @@ static FILE* open_pipe(char* command, char* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    int opt = 0;
+    int opt = 0, quiet = 0;
     char* dest = NULL;
-    while ((opt = getopt(argc, argv, "o:")) != -1) {
+    while ((opt = getopt(argc, argv, "o:q")) != -1) {
         switch (opt) {
             case 'o':
                 dest = optarg;
+                break;
+            case 'q':
+                quiet = 1;
                 break;
             default:
                 exit(EUSAGE);
@@ -313,7 +316,10 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind != argc - 1)
-        fail("usage: hget [-o <FILE>] <url>", EUSAGE);
+        fail("usage: hget [-q] [-o <FILE>] <url>", EUSAGE);
+
+    if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
+        quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
     URL url = parse_url(arg);
@@ -326,7 +332,7 @@ int main(int argc, char *argv[]) {
             dest = "index.html";
     }
 
-    FILE* bar = open_pipe(getenv("PROGRESS"), arg);
+    FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     int status = get(url, dest, bar);
 
     if (bar) {

@@ -18,11 +18,11 @@ hget is a minimalist HTTP/HTTPS client and download utility written in C.
 
 # Usage
 
-    hget [-o <dest>] <url>
+    hget [-q] [-o <dest>] <url>
 
 To show a progress bar, install a progress bar utility like
 [bar](https://github.com/clark800/bar) and set the `PROGRESS` environment
-variable to the name of the utility.
+variable to the name of the utility. The `-q` flag disables the progress bar.
 
 
 # Building
