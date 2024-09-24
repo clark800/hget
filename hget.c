@@ -18,7 +18,7 @@ typedef struct {
     char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
-static int get(URL url, char* dest, FILE* bar);
+static int get(URL url, char* method, char* dest, FILE* bar);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -135,9 +135,10 @@ static int conn(char* host, char* port) {
     return sockfd;
 }
 
-static void request(FILE* sock, TLS* tls, URL url, char* dest) {
+static void request(FILE* sock, TLS* tls, URL url, char* method, char* dest) {
     struct stat sb;
-    swrite(sock, tls, "GET /");
+    swrite(sock, tls, method);
+    swrite(sock, tls, " /");
     swrite(sock, tls, url.path);
     if (url.query[0]) {
         swrite(sock, tls, "?");
@@ -192,14 +193,14 @@ static char* skip_head(char* response) {
     return end + 4;
 }
 
-static int redirect(char* location, char* dest, FILE* bar) {
+static int redirect(char* location, char* method, char* dest, FILE* bar) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return get(parse_url(location), dest, bar);
+    return get(parse_url(location), method, dest, bar);
 }
 
 static FILE* open_file(char* dest) {
@@ -222,7 +223,7 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
     return n;
 }
 
-static int get(URL url, char* dest, FILE* bar) {
+static int get(URL url, char* method, char* dest, FILE* bar) {
     char buffer[8192];
     int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
@@ -231,7 +232,7 @@ static int get(URL url, char* dest, FILE* bar) {
     if (sock == NULL)
         sfail("fdopen failed");
 
-    request(sock, tls, url, dest);
+    request(sock, tls, url, method, dest);
 
     size_t N = sizeof(buffer);
     size_t n = read_head(sock, tls, buffer, N);
@@ -260,7 +261,8 @@ static int get(URL url, char* dest, FILE* bar) {
         end_tls(tls);
     fclose(sock);
     if (status_code / 100 == 3 && status_code != 304)
-        return redirect(get_header(buffer, "Location:"), dest, bar);
+        return redirect(get_header(buffer, "Location:"),
+            status_code == 303 ? "GET" : method, dest, bar);
     return status_code;
 }
 
@@ -303,10 +305,14 @@ int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
-    const char* opts = wget ? "O:q" : "o:q";
+    char* method = "GET";
+    const char* opts = wget ? "O:q" : "o:m:q";
 
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
+            case 'm':
+                method = optarg;
+                break;
             case 'o':
             case 'O':
                 dest = optarg;
@@ -320,7 +326,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind != argc - 1)
-        fail("usage: hget [-q] [-o <FILE>] <url>", EUSAGE);
+        fail("usage: hget [-q] [-o <dest>] [-m <method>] <url>", EUSAGE);
 
     if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
@@ -337,7 +343,7 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, dest, bar);
+    int status = get(url, method, dest, bar);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
