@@ -1,6 +1,6 @@
 # Introduction
 
-hget is a minimalist HTTP/HTTPS download utility written in C.
+hget is a minimalist HTTP/HTTPS client and download utility written in C.
 
 #### Features
 * Download progress can be sent to an external progress bar utility.
@@ -18,9 +18,7 @@ hget is a minimalist HTTP/HTTPS download utility written in C.
 
 # Usage
 
-    hget <url> [<dest>]
-
-To send output to stdout, set `dest` to `-`.
+    hget [-o <dest>] <url>
 
 To show a progress bar, install a progress bar utility like
 [bar](https://github.com/clark800/bar) and set the `PROGRESS` environment
