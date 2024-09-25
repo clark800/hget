@@ -18,7 +18,7 @@ hget is a minimalist HTTP/HTTPS client and download utility written in C.
 
 # Usage
 
-    hget [-d] [-q] [-o <dest>] [-m <method>] [-b <body>] <url>
+    hget [-d] [-q] [-o <dest>] [-m <method>] [-h <header>]... [-b <body>] <url>
 
 The `-d` flag dumps the full response including headers.
 
