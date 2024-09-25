@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -188,7 +189,7 @@ static char* get_header(char* response, char* name) {
         if (strncmp(endline, "\r\n\r\n", 4) == 0)
             return NULL; // end of headers
         char* header = endline + 2;
-        if (strncmp(header, name, strlen(name)) == 0) {
+        if (strncasecmp(header, name, strlen(name)) == 0) {
             char* value = header + strlen(name);
             return value + strspn(value, " \t");
         }
