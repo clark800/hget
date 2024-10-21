@@ -11,17 +11,19 @@ hget is a minimalist HTTP/HTTPS client and download utility written in C.
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* About 400 lines of code
+* About 440 lines of code
 * 66KB static binary without https support
 * 234KB static binary with https support
 
 
 # Usage
 
-    hget [-d] [-q] [-o <dest>] [-c <cacerts>]
+    hget [-d] [-f] [-q] [-o <dest>] [-c <cacerts>]
          [-m <method>] [-h <header>]... [-b <body>] <url>
 
 The `-d` flag dumps the full response including headers.
+
+The `-f` flag forces an HTTPS connection even if it is insecure.
 
 To show a progress bar, install a progress bar utility like
 [bar](https://github.com/clark800/bar) and set the `PROGRESS` environment

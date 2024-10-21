@@ -48,12 +48,17 @@ void write_tls(TLS* tls, const void* buf, size_t len) {
     }
 }
 
-TLS* start_tls(int sock, const char* host, const char* cacerts) {
+TLS* start_tls(int sock, const char* host, const char* cacerts, int insecure) {
     struct tls_config* tls_config = tls_config_new();
     if (!tls_config)
         fail("failed to create tls config", NULL);
-    if (tls_config_set_ca_file(tls_config, cacerts) != 0)
+    if (insecure) {
+        tls_config_insecure_noverifycert(tls_config);
+        tls_config_insecure_noverifyname(tls_config);
+        tls_config_insecure_noverifytime(tls_config);
+    } else if (tls_config_set_ca_file(tls_config, cacerts) != 0) {
         fail("failed to load CA bundle", NULL);
+    }
 
     struct tls* tls = tls_client();
     if (!tls)
