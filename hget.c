@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <strings.h>
+#include <strings.h>  // strncasecmp
 #include <time.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -20,7 +20,7 @@ typedef struct {
 } URL;
 
 static int get(URL url, char* method, char** headers, char* body,
-        int dump, char* dest, FILE* bar);
+        int dump, char* dest, char* cacerts, FILE* bar);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -211,14 +211,15 @@ static char* skip_head(char* response) {
 }
 
 static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, char* dest, FILE* bar) {
+        int dump, char* dest, char* cacerts, FILE* bar) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return get(parse_url(location), method, headers, body, dump, dest, bar);
+    return get(parse_url(location), method, headers, body, dump, dest,
+               cacerts, bar);
 }
 
 static FILE* open_file(char* dest) {
@@ -242,11 +243,11 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
 }
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, FILE* bar) {
+        char* dest, char* cacerts, FILE* bar) {
     char buffer[8192];
     int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
-    TLS* tls = https ? start_tls(sockfd, url.host) : NULL;
+    TLS* tls = https ? start_tls(sockfd, url.host, cacerts) : NULL;
     FILE* sock = fdopen(sockfd, "r+");
     if (sock == NULL)
         sfail("fdopen failed");
@@ -282,7 +283,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
             status_code == 303 ? "GET" : method, headers, body, dump, dest,
-            bar);
+            cacerts, bar);
     return status_code;
 }
 
@@ -325,15 +326,19 @@ int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
+    char* cacerts = CA_BUNDLE;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:m:h:b:dq";
+    const char* opts = wget ? "O:q" : "o:c:m:h:b:dq";
 
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
             case 'd':
                 dump = 1;
+                break;
+            case 'c':
+                cacerts = optarg;
                 break;
             case 'b':
                 body = optarg;
@@ -358,7 +363,7 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind != argc - 1)
-        fail("usage: hget [-d] [-q] [-o <dest>] "
+        fail("usage: hget [-d] [-q] [-o <dest>] [-c <cacerts>] "
              "[-m <method>] [-h <header>]... [-b <body>] <url>", EUSAGE);
 
     if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
@@ -376,7 +381,7 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, method, headers, body, dump, dest, bar);
+    int status = get(url, method, headers, body, dump, dest, cacerts, bar);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
