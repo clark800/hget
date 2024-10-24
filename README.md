@@ -7,8 +7,9 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 #### Features
 * Download progress can be sent to an external progress bar utility.
 * Automatically follows HTTP 3xx redirects.
-* If the destination file exists, it will only be downloaded if the modification
-  time on the server is newer than the modification time of the local file
+* If the destination file exists and the `-u` option is specified,
+  the file will only be downloaded if the modification time on the server is
+  more recent than the modification time of the local file
   (using the If-Modified-Since header).
 * Exit status codes are more helpful than curl defaults.
 
