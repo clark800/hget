@@ -332,6 +332,11 @@ int main(int argc, char *argv[]) {
     char* body = NULL;
     const char* opts = wget ? "O:q" : "o:c:m:h:b:dfq";
 
+    if (getenv("CA_BUNDLE"))
+        cacerts = getenv("CA_BUNDLE");
+    if (getenv("HGET_CA_BUNDLE"))
+        cacerts = getenv("HGET_CA_BUNDLE");
+
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
             case 'd':
