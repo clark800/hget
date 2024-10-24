@@ -1,6 +1,8 @@
 # Introduction
 
 hget is a minimalist HTTP/HTTPS client and download utility written in C.
+hget is designed to provide 99% of the value-weighted utility of curl in
+<1% as much code.
 
 #### Features
 * Download progress can be sent to an external progress bar utility.
@@ -11,7 +13,7 @@ hget is a minimalist HTTP/HTTPS client and download utility written in C.
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* About 440 lines of code
+* About 440 lines of code (0.3% the size of curl at ~134,000 lines)
 * 66KB static binary without https support
 * 234KB static binary with https support
 
