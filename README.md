@@ -13,14 +13,14 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* About 440 lines of code (0.3% the size of curl at ~134,000 lines)
+* About 460 lines of code (0.3% the size of curl at ~134,000 lines)
 * 66KB static binary without https support
 * 234KB static binary with https support
 
 
 # Usage
 
-    hget [-d] [-f] [-q] [-o <dest>] [-c <cacerts>]
+    hget [-d] [-f] [-q] [-o <dest>] [-a <user:pass>] [-c <cacerts>]
          [-m <method>] [-h <header>]... [-b <body>] <url>
 
 The `-d` flag dumps the full response including headers.

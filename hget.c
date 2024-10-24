@@ -20,7 +20,8 @@ typedef struct {
 } URL;
 
 static int get(URL url, char* method, char** headers, char* body,
-        int dump, char* dest, char* cacerts, int insecure, FILE* bar);
+        int dump, char* dest, char* auth, char* cacerts, int insecure,
+        FILE* bar);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -34,6 +35,16 @@ static int isdir(const char* path) {
     // (https://pubs.opengroup.org/onlinepubs/000095399/functions/stat.html)
     struct stat sb;
     return path != NULL && stat(path, &sb) == 0 && (sb.st_mode & S_IFDIR);
+}
+
+static void base64encode(const char* in, size_t n, char* out) {
+    char* E = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    for (size_t i = 0, j = 0, w = 0; i < 4 * ((n + 2) / 3); i++) {
+        if (i % 4 != 3)
+            w = w << 8 | (j < n ? (unsigned char)in[j++] : 0);
+        out[i] = i <= (4 * n) / 3 ? E[(w >> 2 * ((i + 1) % 4)) & 63] : '=';
+    }
+    out[4 * ((n + 2) / 3)] = 0;
 }
 
 static void* fail(const char* message, int status) {
@@ -138,7 +149,7 @@ static int conn(char* host, char* port) {
 }
 
 static void request(FILE* sock, TLS* tls, URL url, char* method,
-        char** headers, char* body, char* dest) {
+        char** headers, char* body, char* auth, char* dest) {
     struct stat sb;
     swrite(sock, tls, method);
     swrite(sock, tls, " /");
@@ -149,6 +160,15 @@ static void request(FILE* sock, TLS* tls, URL url, char* method,
     }
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, url.host);
+    if (auth != NULL) {
+        char buffer[1024];
+        size_t n = strlen(auth);
+        if (4 * ((n + 2) / 3) >= sizeof(buffer))
+            fail("error: auth string too long", EFAIL);
+        base64encode(auth, n, buffer);
+        swrite(sock, tls, "\r\nAuthorization: Basic ");
+        swrite(sock, tls, buffer);
+    }
     if (dest != NULL && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
         char buffer[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
@@ -211,7 +231,8 @@ static char* skip_head(char* response) {
 }
 
 static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, char* dest, char* cacerts, int insecure, FILE* bar) {
+        int dump, char* dest, char* auth, char* cacerts, int insecure,
+        FILE* bar) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
@@ -219,7 +240,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
     return get(parse_url(location), method, headers, body, dump, dest,
-               cacerts, insecure, bar);
+               auth, cacerts, insecure, bar);
 }
 
 static FILE* open_file(char* dest) {
@@ -243,7 +264,7 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
 }
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, char* cacerts, int insecure, FILE* bar) {
+        char* dest, char* auth, char* cacerts, int insecure, FILE* bar) {
     char buffer[8192];
     int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
@@ -252,7 +273,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (sock == NULL)
         sfail("fdopen failed");
 
-    request(sock, tls, url, method, headers, body, dest);
+    request(sock, tls, url, method, headers, body, auth, dest);
 
     size_t N = sizeof(buffer);
     size_t n = read_head(sock, tls, buffer, N);
@@ -283,7 +304,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
             status_code == 303 ? "GET" : method, headers, body, dump, dest,
-            cacerts, insecure, bar);
+            auth, cacerts, insecure, bar);
     return status_code;
 }
 
@@ -326,11 +347,12 @@ int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, insecure = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
+    char* auth = NULL;
     char* cacerts = CA_BUNDLE;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:c:m:h:b:dfq";
+    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfq";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -344,6 +366,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'f':
                 insecure = 1;
+                break;
+            case 'a':
+                auth = optarg;
                 break;
             case 'c':
                 cacerts = optarg;
@@ -371,14 +396,18 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind != argc - 1)
-        fail("usage: hget [-d] [-f] [-q] [-o <dest>] [-c <cacerts>] "
-             "[-m <method>] [-h <header>]... [-b <body>] <url>", EUSAGE);
+        fail("usage: hget [-d] [-f] [-q] [-o <dest>] [-a <user:pass>] "
+             "[-c <cacerts>] [-m <method>] [-h <header>]... [-b <body>] "
+             "<url>", EUSAGE);
 
     if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
     URL url = parse_url(arg);
+
+    if (url.userinfo[0] != 0)
+        auth = url.userinfo;
 
     if (dest != NULL && strcmp(dest, "-") != 0 && isdir(dest)) {
         if (chdir(dest) != 0)
@@ -389,8 +418,8 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, method, headers, body, dump, dest, cacerts, insecure,
-                     bar);
+    int status = get(url, method, headers, body, dump, dest, auth, cacerts,
+                     insecure, bar);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
