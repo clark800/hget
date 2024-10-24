@@ -148,11 +148,10 @@ static int conn(char* host, char* port) {
     return sockfd;
 }
 
-static void request(FILE* sock, TLS* tls, URL url, char* method,
+static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
         char** headers, char* body, char* auth, char* dest, int update) {
     struct stat sb;
-    char buffer[8192];
-    size_t n = 0, N = sizeof(buffer);
+    size_t n = 0, N = BUFSIZE;
 
     n += snprintf(buffer + n, n < N ? N - n : 0, "%s /%s", method, url.path);
     if (url.query[0])
@@ -174,7 +173,7 @@ static void request(FILE* sock, TLS* tls, URL url, char* method,
     if (update && dest && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
         char time[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
-        strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
+        strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
         n += snprintf(buffer + n, n < N ? N - n : 0,
                 "If-Modified-Since: %s\r\n", time);
     }
@@ -268,20 +267,9 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
     return n;
 }
 
-static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, int update, char* auth, char* cacerts, int insecure,
-        FILE* bar) {
-    char buffer[8192];
-    int sockfd = conn(url.host, url.port);
-    int https = strcmp(url.scheme, "https") == 0;
-    TLS* tls = https ? start_tls(sockfd, url.host, cacerts, insecure) : NULL;
-    FILE* sock = fdopen(sockfd, "r+");
-    if (sock == NULL)
-        sfail("fdopen failed");
-
-    request(sock, tls, url, method, headers, body, auth, dest, update);
-
-    size_t N = sizeof(buffer);
+static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
+        int dump, FILE* bar) {
+    size_t N = BUFSIZE;
     size_t n = read_head(sock, tls, buffer, N);
     buffer[n] = '\0';
 
@@ -303,6 +291,22 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
         if (size && progress != size)
             fail("connection closed before all data was received", EFAIL);
     }
+    return status_code;
+}
+
+static int get(URL url, char* method, char** headers, char* body, int dump,
+        char* dest, int update, char* auth, char* cacerts, int insecure,
+        FILE* bar) {
+    char buffer[BUFSIZE];
+    int sockfd = conn(url.host, url.port);
+    int https = strcmp(url.scheme, "https") == 0;
+    TLS* tls = https ? start_tls(sockfd, url.host, cacerts, insecure) : NULL;
+    FILE* sock = fdopen(sockfd, "r+");
+    if (sock == NULL)
+        sfail("fdopen failed");
+
+    request(buffer, sock, tls, url, method, headers, body, auth, dest, update);
+    int status_code = handle_response(buffer, sock, tls, dest, dump, bar);
 
     if (tls)
         end_tls(tls);

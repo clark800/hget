@@ -17,4 +17,5 @@ esac
     -Wpedantic -Wall -Wextra -Wfatal-errors -Wshadow -Wcast-qual \
     -Wmissing-prototypes -Wstrict-prototypes -Wredundant-decls \
     -D CA_BUNDLE="\"${CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}\"" \
+    -D BUFSIZE="${HGET_BUFSIZE:-8192}" \
     -o hget $SOURCES $LIBS
