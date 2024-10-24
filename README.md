@@ -13,23 +13,31 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* About 460 lines of code (0.3% the size of curl at ~134,000 lines)
+* Less than 500 lines of code (0.4% the size of curl at ~134,000 lines)
 * 66KB static binary without https support
 * 234KB static binary with https support
 
 
 # Usage
 
-    hget [-d] [-f] [-q] [-o <dest>] [-a <user:pass>] [-c <cacerts>]
-         [-m <method>] [-h <header>]... [-b <body>] <url>
+    Usage: hget [options] <url>
+    Options:
+      -o <dest>       write output to the specified file
+      -u              only download if server file is newer
+      -q              disable progress bar
+      -f              force https connection even if it is insecure
+      -d              dump full response including headers
+      -a <user:pass>  add http basic authentication header
+      -m <method>     set the http request method
+      -h <header>     add a header to the request (may be repeated)
+      -b <body>       set the body of the request
+      -c <cacerts>    use the specified CA certificates file
 
-The `-d` flag dumps the full response including headers.
-
-The `-f` flag forces an HTTPS connection even if it is insecure.
+To download a file to the current directory, use `hget -o. <url>`.
 
 To show a progress bar, install a progress bar utility like
 [bar](https://github.com/clark800/bar) and set the `PROGRESS` environment
-variable to the name of the utility. The `-q` flag disables the progress bar.
+variable to the name of the utility.
 
 
 # Building

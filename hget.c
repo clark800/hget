@@ -20,8 +20,8 @@ typedef struct {
 } URL;
 
 static int get(URL url, char* method, char** headers, char* body,
-        int dump, char* dest, char* auth, char* cacerts, int insecure,
-        FILE* bar);
+        int dump, char* dest, int update, char* auth, char* cacerts,
+        int insecure, FILE* bar);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -149,7 +149,7 @@ static int conn(char* host, char* port) {
 }
 
 static void request(FILE* sock, TLS* tls, URL url, char* method,
-        char** headers, char* body, char* auth, char* dest) {
+        char** headers, char* body, char* auth, char* dest, int update) {
     struct stat sb;
     swrite(sock, tls, method);
     swrite(sock, tls, " /");
@@ -160,7 +160,7 @@ static void request(FILE* sock, TLS* tls, URL url, char* method,
     }
     swrite(sock, tls, " HTTP/1.0\r\nHost: ");
     swrite(sock, tls, url.host);
-    if (auth != NULL) {
+    if (auth) {
         char buffer[1024];
         size_t n = strlen(auth);
         if (4 * ((n + 2) / 3) >= sizeof(buffer))
@@ -169,7 +169,7 @@ static void request(FILE* sock, TLS* tls, URL url, char* method,
         swrite(sock, tls, "\r\nAuthorization: Basic ");
         swrite(sock, tls, buffer);
     }
-    if (dest != NULL && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
+    if (update && dest && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
         char buffer[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
@@ -231,8 +231,8 @@ static char* skip_head(char* response) {
 }
 
 static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, char* dest, char* auth, char* cacerts, int insecure,
-        FILE* bar) {
+        int dump, char* dest, int update, char* auth, char* cacerts,
+        int insecure, FILE* bar) {
     if (location == NULL)
         fail("error: redirect missing location", EFAIL);
     char* endline = strstr(location, "\r\n");
@@ -240,7 +240,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
     return get(parse_url(location), method, headers, body, dump, dest,
-               auth, cacerts, insecure, bar);
+               update, auth, cacerts, insecure, bar);
 }
 
 static FILE* open_file(char* dest) {
@@ -264,7 +264,8 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
 }
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, char* auth, char* cacerts, int insecure, FILE* bar) {
+        char* dest, int update, char* auth, char* cacerts, int insecure,
+        FILE* bar) {
     char buffer[8192];
     int sockfd = conn(url.host, url.port);
     int https = strcmp(url.scheme, "https") == 0;
@@ -273,7 +274,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (sock == NULL)
         sfail("fdopen failed");
 
-    request(sock, tls, url, method, headers, body, auth, dest);
+    request(sock, tls, url, method, headers, body, auth, dest, update);
 
     size_t N = sizeof(buffer);
     size_t n = read_head(sock, tls, buffer, N);
@@ -304,7 +305,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
             status_code == 303 ? "GET" : method, headers, body, dump, dest,
-            auth, cacerts, insecure, bar);
+            update, auth, cacerts, insecure, bar);
     return status_code;
 }
 
@@ -344,7 +345,7 @@ static FILE* open_pipe(char* command, char* arg) {
 }
 
 int main(int argc, char *argv[]) {
-    int opt = 0, quiet = 0, dump = 0, insecure = 0, nheaders = 0;
+    int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
     char* auth = NULL;
@@ -352,7 +353,7 @@ int main(int argc, char *argv[]) {
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfq";
+    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfqu";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -372,6 +373,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'c':
                 cacerts = optarg;
+                break;
+            case 'u':
+                update = 1;
                 break;
             case 'b':
                 body = optarg;
@@ -396,9 +400,19 @@ int main(int argc, char *argv[]) {
     }
 
     if (optind != argc - 1)
-        fail("usage: hget [-d] [-f] [-q] [-o <dest>] [-a <user:pass>] "
-             "[-c <cacerts>] [-m <method>] [-h <header>]... [-b <body>] "
-             "<url>", EUSAGE);
+        fail("Usage: hget [options] <url>\n"
+             "Options:\n"
+             "  -o <dest>       write output to the specified file\n"
+             "  -u              only download if server file is newer\n"
+             "  -q              disable progress bar\n"
+             "  -f              force https connection even if it is insecure\n"
+             "  -d              dump full response including headers\n"
+             "  -a <user:pass>  add http basic authentication header\n"
+             "  -m <method>     set the http request method\n"
+             "  -h <header>     add a header to the request (may be repeated)\n"
+             "  -b <body>       set the body of the request\n"
+             "  -c <cacerts>    use the specified CA certificates file"
+             , EUSAGE);
 
     if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
@@ -418,8 +432,8 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, method, headers, body, dump, dest, auth, cacerts,
-                     insecure, bar);
+    int status = get(url, method, headers, body, dump, dest, update, auth,
+                     cacerts, insecure, bar);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
