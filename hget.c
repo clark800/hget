@@ -151,45 +151,50 @@ static int conn(char* host, char* port) {
 static void request(FILE* sock, TLS* tls, URL url, char* method,
         char** headers, char* body, char* auth, char* dest, int update) {
     struct stat sb;
-    swrite(sock, tls, method);
-    swrite(sock, tls, " /");
-    swrite(sock, tls, url.path);
-    if (url.query[0]) {
-        swrite(sock, tls, "?");
-        swrite(sock, tls, url.query);
-    }
-    swrite(sock, tls, " HTTP/1.0\r\nHost: ");
-    swrite(sock, tls, url.host);
+    char buffer[8192];
+    size_t n = 0, N = sizeof(buffer);
+
+    n += snprintf(buffer + n, n < N ? N - n : 0, "%s /%s", method, url.path);
+    if (url.query[0])
+        n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
+    n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.0\r\n");
+    n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
+    n += snprintf(buffer + n, n < N ? N - n : 0,
+            "Accept-Encoding: identity\r\n");
     if (auth) {
-        char buffer[1024];
-        size_t n = strlen(auth);
-        if (4 * ((n + 2) / 3) >= sizeof(buffer))
+        size_t m = strlen(auth);
+        if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
             fail("error: auth string too long", EFAIL);
-        base64encode(auth, n, buffer);
-        swrite(sock, tls, "\r\nAuthorization: Basic ");
-        swrite(sock, tls, buffer);
+        n += snprintf(buffer + n, n < N ? N - n : 0,
+            "Authorization: Basic ");
+        base64encode(auth, m, buffer + n);
+        n += 4 * ((m + 2) / 3);
+        n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     }
     if (update && dest && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
-        char buffer[32];
+        char time[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(buffer, sizeof(buffer), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
-        swrite(sock, tls, "\r\nIf-Modified-Since: ");
+        n += snprintf(buffer + n, n < N ? N - n : 0,
+                "If-Modified-Since: %s\r\n", time);
+    }
+    while (*headers != NULL)
+        n += snprintf(buffer + n, n < N ? N - n : 0, "%s\r\n", *(headers++));
+    if (body)
+        n += snprintf(buffer + n, n < N ? N - n : 0,
+                "Content-Length: %zu\r\n", strlen(body));
+    n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
+
+    if (n >= N)
+        fail("error: request too large", EFAIL);
+
+    if (body && strlen(body) < (n < N ? N - n : 0)) {
+        n += snprintf(buffer + n, n < N ? N - n : 0, "%s", body);
         swrite(sock, tls, buffer);
-    }
-    swrite(sock, tls, "\r\nAccept-Encoding: identity");
-    while (*headers != NULL) {
-        swrite(sock, tls, "\r\n");
-        swrite(sock, tls, *(headers++));
-    }
-    if (body) {
-        char buffer[32];
-        snprintf(buffer, sizeof(buffer), "%zu", strlen(body));
-        swrite(sock, tls, "\r\nContent-Length: ");
+    } else {
         swrite(sock, tls, buffer);
-    }
-    swrite(sock, tls, "\r\n\r\n");
-    if (body) {
-        swrite(sock, tls, body);
+        if (body)
+            swrite(sock, tls, body);
     }
 }
 
