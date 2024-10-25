@@ -271,13 +271,17 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
 }
 
 static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
-        size_t n, size_t size, FILE* out, FILE* bar) {
+        size_t n, FILE* out, FILE* bar) {
     size_t N = BUFSIZE, headlen = body - buffer;
+    char* length = get_header(buffer, "Content-Length:");
+    size_t size = length ? strtoll(length, NULL, 10) : 0;
     size_t progress = write_body_span(out, body, n - headlen, 0, size, bar);
     for (n = N; n == N && (size == 0 || progress < size);) {
         n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
         progress += write_body_span(out, buffer, n, progress, size, bar);
     }
+    if (size && progress != size)
+        fail("connection closed before all data was received", EFAIL);
     return progress;
 }
 
@@ -289,19 +293,14 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
 
     int status_code = parse_status_line(buffer);
     if (status_code / 100 == 2) {
-        char* length = get_header(buffer, "Content-Length:");
-        size_t size = length ? strtoll(length, NULL, 10) : 0;
         char* body = skip_head(buffer);
         FILE* out = open_file(dest);
         size_t headlen = body - buffer;
         if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
             sfail("write failed");
-        size_t progress = write_body(sock, tls, buffer, body, n, size, out,
-                bar);
+        write_body(sock, tls, buffer, body, n, out, bar);
         if (fclose(out) != 0)
             sfail("close failed");
-        if (size && progress != size)
-            fail("connection closed before all data was received", EFAIL);
     }
     return status_code;
 }
