@@ -213,6 +213,7 @@ static int parse_status_line(char* response) {
     return status_code;
 }
 
+// name parameter must include the colon
 static char* get_header(char* response, char* name) {
     char* endline = strstr(response, "\r\n");
     while (endline != NULL) {
@@ -285,6 +286,13 @@ static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
     return progress;
 }
 
+static size_t write_chunked_body(FILE* sock, TLS* tls, char* buffer, char* body,
+        size_t n, FILE* out, FILE* bar) {
+    (void)sock,(void)tls,(void)buffer,(void)body,(void)n,(void)out,(void)bar;
+    fail("error: chunked transfer encoding not implemented", EFAIL);
+    return 0;
+}
+
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         int dump, FILE* bar) {
     size_t N = BUFSIZE;
@@ -298,7 +306,13 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         size_t headlen = body - buffer;
         if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
             sfail("write failed");
-        write_body(sock, tls, buffer, body, n, out, bar);
+        char* encodings = get_header(buffer, "Transfer-Encoding:");
+        char* comma = encodings ? strrchr(encodings, ',') : NULL;
+        char* encoding = comma ? comma + strspn(comma, ", \t") : encodings;
+        if (encodings && strncasecmp(encoding, "chunked", 7) == 0)
+            write_chunked_body(sock, tls, buffer, body, n, out, bar);
+        else
+            write_body(sock, tls, buffer, body, n, out, bar);
         if (fclose(out) != 0)
             sfail("close failed");
     }
