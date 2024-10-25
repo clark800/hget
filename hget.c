@@ -74,12 +74,13 @@ static void swrite(FILE* sock, TLS* tls, const char* buf) {
         sfail("send failed");
 }
 
-static void write_body(FILE* out, void* buf, size_t len,
+static size_t write_body(FILE* out, void* buf, size_t len,
         size_t progress, size_t size, FILE* bar) {
     if (fwrite(buf, 1, len, out) != len)
         sfail("write failed");
     if (bar && len > 0 && size > 0)
         fprintf(bar, "%zu %zu\n", progress + len, size);
+    return len;
 }
 
 static URL parse_url(char* str) {
@@ -279,14 +280,16 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
     if (status_code / 100 == 2) {
         char* length = get_header(buffer, "Content-Length:");
         size_t size = length ? strtoll(length, NULL, 10) : 0;
-        char* response_body = dump ? buffer : skip_head(buffer);
+        char* body = skip_head(buffer);
         FILE* out = open_file(dest);
-        size_t headlen = response_body - buffer;
-        write_body(out, response_body, n - headlen, 0, size, bar);
-        size_t progress = n - headlen;
-        for (n = N; n == N && (size == 0 || progress < size); progress += n) {
+        size_t headlen = body - buffer;
+        if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
+            sfail("write failed");
+
+        size_t progress = write_body(out, body, n - headlen, 0, size, bar);
+        for (n = N; n == N && (size == 0 || progress < size);) {
             n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
-            write_body(out, buffer, n, progress, size, bar);
+            progress += write_body(out, buffer, n, progress, size, bar);
         }
         if (fclose(out) != 0)
             sfail("close failed");
