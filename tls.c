@@ -16,22 +16,29 @@ static void fail(const char* message, struct tls* tls) {
     exit(EFAIL);
 }
 
-// read_tls may read past stop, but it won't block if stop has been read
-size_t read_tls(TLS* tls, void* buf, size_t len, char* stop) {
-    size_t i = 0, stoplen = stop ? strlen(stop) : 0;
+// read_tls_until reads in a loop until the stop sequence is read
+// read_tls_until may read past stop, but it won't block if stop has been read
+size_t read_tls_until(TLS* tls, void* buf, size_t len, char* stop) {
+    size_t i = 0, stoplen = strlen(stop);
     for (ssize_t n = 0; i < len; i += n) {
         n = tls_read((struct tls*)tls, (char*)buf + i, len - i);
         if (n == 0)
             return i;   // end of file
         if (n == TLS_WANT_POLLIN || n == TLS_WANT_POLLOUT)
             n = 0;      // try again
-        else if (n < 0)
+        else if (n < 0) {
+            // if connection closed by server without close_notify, just
+            // treat this like a clean close
+            // https://github.com/openssl/openssl/discussions/22690
+            if (strstr(tls_error((struct tls*)tls), "0A000126"))
+                return i;
             fail("receive failed", (struct tls*)tls);
+        }
         if (i + n == len)
-            return len;    // ensure there is space for null terminator
-        ((char*)buf)[i + n] = '\0';
+            return len;
+        ((char*)buf)[i + n] = '\0';   // add null terminator for strstr
         // stop could span a chunk boundary, so we must search before buf + i
-        if (stop && strstr(i <= stoplen ? buf : (char*)buf + i - stoplen, stop))
+        if (strstr(i <= stoplen ? buf : (char*)buf + i - stoplen, stop))
             return i + n;
     }
     return i;

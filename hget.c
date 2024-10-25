@@ -60,7 +60,8 @@ static void sfail(const char* message) {
 }
 
 static size_t sread(FILE* sock, TLS* tls, void* buf, size_t len) {
-    size_t n = tls ? read_tls(tls, buf, len, NULL) : fread(buf, 1, len, sock);
+    size_t n = tls ? read_tls_until(tls, buf, len, "\n") :
+                     fread(buf, 1, len, sock);
     if (!tls && ferror(sock))
         sfail("receive failed");
     return n;
@@ -74,10 +75,15 @@ static void swrite(FILE* sock, TLS* tls, const char* buf) {
         sfail("send failed");
 }
 
-static size_t write_body_span(FILE* out, void* buf, size_t len,
-        size_t progress, size_t size, FILE* bar) {
+static size_t write_out(FILE* out, char* buf, size_t len) {
     if (fwrite(buf, 1, len, out) != len)
         sfail("write failed");
+    return len;
+}
+
+static size_t write_body_span(FILE* out, void* buf, size_t len,
+        size_t progress, size_t size, FILE* bar) {
+    write_out(out, buf, len);
     if (bar && len > 0 && size > 0)
         fprintf(bar, "%zu %zu\n", progress + len, size);
     return len;
@@ -157,8 +163,9 @@ static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
     n += snprintf(buffer + n, n < N ? N - n : 0, "%s /%s", method, url.path);
     if (url.query[0])
         n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
-    n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.0\r\n");
+    n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.1\r\n");
     n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "Connection: close\r\n");
     n += snprintf(buffer + n, n < N ? N - n : 0,
             "Accept-Encoding: identity\r\n");
     if (url.userinfo[0]) {
@@ -229,7 +236,7 @@ static char* get_header(char* response, char* name) {
     return fail("error: response headers too long", EFAIL);
 }
 
-static char* skip_head(char* response) {
+static char* skip_header(char* response) {
     char* end = strstr(response, "\r\n\r\n");
     if (end == NULL)
         fail("error: response headers too long", EFAIL);
@@ -262,7 +269,7 @@ static FILE* open_file(char* dest) {
 
 static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
     if (tls)
-        return read_tls(tls, buf, len, "\r\n\r\n");
+        return read_tls_until(tls, buf, len, "\r\n\r\n");
 
     size_t n;
     for (n = 0; n < len && fgets(buf + n, len - n, sock); n += strlen(buf + n))
@@ -277,7 +284,7 @@ static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
     char* length = get_header(buffer, "Content-Length:");
     size_t size = length ? strtoll(length, NULL, 10) : 0;
     size_t progress = write_body_span(out, body, n - headlen, 0, size, bar);
-    for (n = N; n == N && (size == 0 || progress < size);) {
+    for (n = N; n > 0 && (size == 0 || progress < size);) {
         n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
         progress += write_body_span(out, buffer, n, progress, size, bar);
     }
@@ -286,11 +293,63 @@ static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
     return progress;
 }
 
-static size_t write_chunked_body(FILE* sock, TLS* tls, char* buffer, char* body,
-        size_t n, FILE* out, FILE* bar) {
-    (void)sock,(void)tls,(void)buffer,(void)body,(void)n,(void)out,(void)bar;
-    fail("error: chunked transfer encoding not implemented", EFAIL);
-    return 0;
+static size_t shift(char* buffer, char* start, size_t n) {
+    memmove(buffer, start, n);
+    return n;
+}
+
+// assumes that buffer starts with a chunk size line
+// n is the number of characters that have been read into the buffer
+// m is the number of characters in the buffer already or about to be written
+static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
+        FILE* out) {
+    size_t N = BUFSIZE;
+    // first we need to make sure that we have the complete chunk size line
+    char* newline = memchr(buffer, '\n', n);
+    if (!newline)
+        n += sread(sock, tls, buffer + n, N - n);
+    newline = memchr(buffer, '\n', n);
+    if (!newline)
+        fail("error: invalid chunked encoding (no newline)", EFAIL);
+    size_t size = (size_t)strtoul(buffer, NULL, 16);
+    if (size == 0) {
+        if (buffer[0] != '0')
+            fail("error: invalid chunked encoding (no terminator)", EFAIL);
+        return SIZE_MAX;
+    }
+
+    char* chunk = newline + 1;
+    size_t prefixlen = chunk - buffer;
+    n = shift(buffer, chunk, n - prefixlen);
+    size_t m = write_out(out, buffer, min(size, n));
+    size_t progress = m;
+    for (; progress < size; progress += m) { //+ 2 for \r\n
+        n = sread(sock, tls, buffer, min((size + 2) - progress, N));
+        m = write_out(out, buffer, min(size - progress, n));
+        if (n == 0)
+            break;
+    }
+    if (progress < size)
+        fail("error: invalid chunked encoding (incorrect length)", EFAIL);
+    fflush(out);
+
+    // skip \r\n at end of chunk
+    if (m + 2 > n) {
+        n = shift(buffer, buffer + m, n - m);
+        n += sread(sock, tls, buffer + n, N - n);
+        m = 0;
+    }
+    if (m + 2 > n || buffer[m] != '\r' || buffer[m + 1] != '\n')
+        fail("error: invalid chunked encoding (missing \\r\\n)", EFAIL);
+    return shift(buffer, buffer + m + 2, n - (m + 2));
+}
+
+static void write_chunks(FILE* sock, TLS* tls, char* buffer, char* body,
+        size_t n, FILE* out) {
+    size_t headlen = body - buffer;
+    n = shift(buffer, body, n - headlen);
+    do n = write_chunk(sock, tls, buffer, n, out);
+    while (n != SIZE_MAX);
 }
 
 static int is_chunked(char* header) {
@@ -320,13 +379,12 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
 
     int status_code = parse_status_line(buffer);
     if (ignore || status_code / 100 == 2) {
-        char* body = skip_head(buffer);
+        char* body = skip_header(buffer);
         FILE* out = open_file(dest);
-        size_t headlen = body - buffer;
-        if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
-            sfail("write failed");
+        if (dump)
+            write_out(out, buffer, body - buffer); // write header
         if (is_chunked(buffer))
-            write_chunked_body(sock, tls, buffer, body, n, out, bar);
+            write_chunks(sock, tls, buffer, body, n, out);
         else
             write_body(sock, tls, buffer, body, n, out, bar);
         if (fclose(out) != 0)
