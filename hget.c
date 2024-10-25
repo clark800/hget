@@ -74,7 +74,7 @@ static void swrite(FILE* sock, TLS* tls, const char* buf) {
         sfail("send failed");
 }
 
-static size_t write_body(FILE* out, void* buf, size_t len,
+static size_t write_body_span(FILE* out, void* buf, size_t len,
         size_t progress, size_t size, FILE* bar) {
     if (fwrite(buf, 1, len, out) != len)
         sfail("write failed");
@@ -270,10 +270,21 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
     return n;
 }
 
+static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
+        size_t n, size_t size, FILE* out, FILE* bar) {
+    size_t N = BUFSIZE, headlen = body - buffer;
+    size_t progress = write_body_span(out, body, n - headlen, 0, size, bar);
+    for (n = N; n == N && (size == 0 || progress < size);) {
+        n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
+        progress += write_body_span(out, buffer, n, progress, size, bar);
+    }
+    return progress;
+}
+
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         int dump, FILE* bar) {
     size_t N = BUFSIZE;
-    size_t n = read_head(sock, tls, buffer, N);
+    size_t n = read_head(sock, tls, buffer, N);  // may read more than head
     buffer[n] = '\0';
 
     int status_code = parse_status_line(buffer);
@@ -285,12 +296,8 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         size_t headlen = body - buffer;
         if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
             sfail("write failed");
-
-        size_t progress = write_body(out, body, n - headlen, 0, size, bar);
-        for (n = N; n == N && (size == 0 || progress < size);) {
-            n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
-            progress += write_body(out, buffer, n, progress, size, bar);
-        }
+        size_t progress = write_body(sock, tls, buffer, body, n, size, out,
+                bar);
         if (fclose(out) != 0)
             sfail("close failed");
         if (size && progress != size)
