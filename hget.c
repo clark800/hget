@@ -20,8 +20,8 @@ typedef struct {
 } URL;
 
 static int get(URL url, char* method, char** headers, char* body,
-        int dump, char* dest, int update, char* auth, char* cacerts,
-        int insecure, FILE* bar, int redirects);
+        int dump, char* dest, int update, char* cacerts, int insecure,
+        FILE* bar, int redirects);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -150,7 +150,7 @@ static int conn(char* host, char* port) {
 }
 
 static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
-        char** headers, char* body, char* auth, char* dest, int update) {
+        char** headers, char* body, char* dest, int update) {
     struct stat sb;
     size_t n = 0, N = BUFSIZE;
 
@@ -161,13 +161,13 @@ static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
     n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
     n += snprintf(buffer + n, n < N ? N - n : 0,
             "Accept-Encoding: identity\r\n");
-    if (auth) {
-        size_t m = strlen(auth);
+    if (url.userinfo[0]) {
+        size_t m = strlen(url.userinfo);
         if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
             fail("error: auth string too long", EFAIL);
         n += snprintf(buffer + n, n < N ? N - n : 0,
             "Authorization: Basic ");
-        base64encode(auth, m, buffer + n);
+        base64encode(url.userinfo, m, buffer + n);
         n += 4 * ((m + 2) / 3);
         n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     }
@@ -237,8 +237,8 @@ static char* skip_head(char* response) {
 }
 
 static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, char* dest, int update, char* auth, char* cacerts,
-        int insecure, FILE* bar, int redirects) {
+        int dump, char* dest, int update, char* cacerts, int insecure,
+        FILE* bar, int redirects) {
     if (redirects >= 20)
         fail("error: too many redirects", EFAIL);
     if (location == NULL)
@@ -248,7 +248,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
     return get(parse_url(location), method, headers, body, dump, dest,
-               update, auth, cacerts, insecure, bar, redirects + 1);
+               update, cacerts, insecure, bar, redirects + 1);
 }
 
 static FILE* open_file(char* dest) {
@@ -328,7 +328,7 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
 }
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, int update, char* auth, char* cacerts, int insecure,
+        char* dest, int update, char* cacerts, int insecure,
         FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     int sockfd = conn(url.host, url.port);
@@ -338,7 +338,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (sock == NULL)
         sfail("fdopen failed");
 
-    request(buffer, sock, tls, url, method, headers, body, auth, dest, update);
+    request(buffer, sock, tls, url, method, headers, body, dest, update);
     int status_code = handle_response(buffer, sock, tls, dest, dump, bar);
 
     if (tls)
@@ -347,7 +347,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
             status_code == 303 ? "GET" : method, headers, body, dump, dest,
-            update, auth, cacerts, insecure, bar, redirects);
+            update, cacerts, insecure, bar, redirects);
     return status_code;
 }
 
@@ -462,8 +462,8 @@ int main(int argc, char *argv[]) {
     char* arg = argv[optind++];
     URL url = parse_url(arg);
 
-    if (url.userinfo[0] != 0)
-        auth = url.userinfo;
+    if (auth)
+        url.userinfo = auth;
 
     if (dest != NULL && strcmp(dest, "-") != 0 && isdir(dest)) {
         if (chdir(dest) != 0)
@@ -474,7 +474,7 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, method, headers, body, dump, dest, update, auth,
+    int status = get(url, method, headers, body, dump, dest, update,
                      cacerts, insecure, bar, 0);
 
     if (bar) {
