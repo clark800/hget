@@ -293,10 +293,21 @@ static size_t write_chunked_body(FILE* sock, TLS* tls, char* buffer, char* body,
     return 0;
 }
 
+static int is_chunked(char* header) {
+    char* encodings = get_header(header, "Transfer-Encoding:");
+    if (!encodings)
+        return 0;
+    char *p = NULL, *comma = NULL;
+    while ((p = strtok(encodings, ",\n")) && *p == ',')
+        comma = p;
+    char* encoding = comma ? (comma + 1) + strspn(comma + 1, " \t") : encodings;
+    return strncasecmp(encoding, "chunked", 7) == 0;
+}
+
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         int dump, FILE* bar) {
     size_t N = BUFSIZE;
-    size_t n = read_head(sock, tls, buffer, N);  // may read more than head
+    size_t n = read_head(sock, tls, buffer, N - 1);  // may read more than head
     buffer[n] = '\0';
 
     int status_code = parse_status_line(buffer);
@@ -306,10 +317,7 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         size_t headlen = body - buffer;
         if (dump && fwrite(buffer, 1, headlen, out) != headlen) // write header
             sfail("write failed");
-        char* encodings = get_header(buffer, "Transfer-Encoding:");
-        char* comma = encodings ? strrchr(encodings, ',') : NULL;
-        char* encoding = comma ? comma + strspn(comma, ", \t") : encodings;
-        if (encodings && strncasecmp(encoding, "chunked", 7) == 0)
+        if (is_chunked(buffer))
             write_chunked_body(sock, tls, buffer, body, n, out, bar);
         else
             write_body(sock, tls, buffer, body, n, out, bar);
