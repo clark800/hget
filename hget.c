@@ -19,8 +19,8 @@ typedef struct {
     char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
-static int get(URL url, char* method, char** headers, char* body,
-        int dump, char* dest, int update, char* cacerts, int insecure,
+static int get(URL url, char* method, char** headers, char* body, int dump,
+        int ignore, char* dest, int update, char* cacerts, int insecure,
         FILE* bar, int redirects);
 
 static size_t min(size_t a, size_t b) {
@@ -237,8 +237,8 @@ static char* skip_head(char* response) {
 }
 
 static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, char* dest, int update, char* cacerts, int insecure,
-        FILE* bar, int redirects) {
+        int dump, int ignore, char* dest, int update, char* cacerts,
+        int insecure, FILE* bar, int redirects) {
     if (redirects >= 20)
         fail("error: too many redirects", EFAIL);
     if (location == NULL)
@@ -247,7 +247,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
     if (endline == NULL)
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
-    return get(parse_url(location), method, headers, body, dump, dest,
+    return get(parse_url(location), method, headers, body, dump, ignore, dest,
                update, cacerts, insecure, bar, redirects + 1);
 }
 
@@ -313,13 +313,13 @@ static void print_status_line(char* response) {
 }
 
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
-        int dump, FILE* bar) {
+        int dump, int ignore, FILE* bar) {
     size_t N = BUFSIZE;
     size_t n = read_head(sock, tls, buffer, N - 1);  // may read more than head
     buffer[n] = '\0';
 
     int status_code = parse_status_line(buffer);
-    if (status_code / 100 == 2) {
+    if (ignore || status_code / 100 == 2) {
         char* body = skip_head(buffer);
         FILE* out = open_file(dest);
         size_t headlen = body - buffer;
@@ -338,7 +338,7 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
 }
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
-        char* dest, int update, char* cacerts, int insecure,
+        int ignore, char* dest, int update, char* cacerts, int insecure,
         FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     int sockfd = conn(url.host, url.port);
@@ -349,15 +349,16 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
         sfail("fdopen failed");
 
     request(buffer, sock, tls, url, method, headers, body, dest, update);
-    int status_code = handle_response(buffer, sock, tls, dest, dump, bar);
+    int status_code = handle_response(buffer, sock, tls, dest, dump, ignore,
+                                      bar);
 
     if (tls)
         end_tls(tls);
     fclose(sock);
-    if (status_code / 100 == 3 && status_code != 304)
+    if (!ignore && status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
-            status_code == 303 ? "GET" : method, headers, body, dump, dest,
-            update, cacerts, insecure, bar, redirects);
+            status_code == 303 ? "GET" : method, headers, body, dump, ignore,
+            dest, update, cacerts, insecure, bar, redirects);
     return status_code;
 }
 
@@ -398,14 +399,14 @@ static FILE* open_pipe(char* command, char* arg) {
 
 int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
-    int wget = strcmp(get_filename(argv[0]), "wget") == 0;
+    int ignore = 0, wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
     char* auth = NULL;
     char* cacerts = CA_BUNDLE;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfqu";
+    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfqui";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -428,6 +429,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'u':
                 update = 1;
+                break;
+            case 'i':
+                ignore = 1;
                 break;
             case 'b':
                 body = optarg;
@@ -459,6 +463,7 @@ int main(int argc, char *argv[]) {
              "  -q              disable progress bar\n"
              "  -f              force https connection even if it is insecure\n"
              "  -d              dump full response including headers\n"
+             "  -i              ignore response status; always print response\n"
              "  -a <user:pass>  add http basic authentication header\n"
              "  -m <method>     set the http request method\n"
              "  -h <header>     add a header to the request (may be repeated)\n"
@@ -484,22 +489,22 @@ int main(int argc, char *argv[]) {
     }
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status = get(url, method, headers, body, dump, dest, update,
-                     cacerts, insecure, bar, 0);
+    int status_code = get(url, method, headers, body, dump, ignore, dest,
+                          update, cacerts, insecure, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
         wait(NULL);  // wait for bar to finish drawing
     }
 
-    if (status / 100 == 2 || status == 304)
+    if (ignore || status_code / 100 == 2 || status_code == 304)
         return OK;
 
-    if (status == 404 || status == 410)
+    if (status_code == 404 || status_code == 410)
         return ENOTFOUND;
-    if (status / 100 == 4)
+    if (status_code / 100 == 4)
         return EREQUEST;
-    if (status / 100 == 5)
+    if (status_code / 100 == 5)
         return ESERVER;
     return EFAIL;
 }
