@@ -304,6 +304,14 @@ static int is_chunked(char* header) {
     return strncasecmp(encoding, "chunked", 7) == 0;
 }
 
+static void print_status_line(char* response) {
+    char* space = strchr(response, ' ');
+    if (space == NULL)
+        fail("error: invalid http response", EFAIL);
+    fwrite(space + 1, 1, strcspn(space + 1, "\r\n"), stderr);
+    fputc('\n', stderr);
+}
+
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         int dump, FILE* bar) {
     size_t N = BUFSIZE;
@@ -324,6 +332,8 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         if (fclose(out) != 0)
             sfail("close failed");
     }
+    else if (status_code >= 400)
+        print_status_line(buffer);
     return status_code;
 }
 
@@ -485,7 +495,6 @@ int main(int argc, char *argv[]) {
     if (status / 100 == 2 || status == 304)
         return OK;
 
-    fprintf(stderr, "HTTP %d\n", status);
     if (status == 404 || status == 410)
         return ENOTFOUND;
     if (status / 100 == 4)
