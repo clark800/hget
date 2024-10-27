@@ -446,7 +446,7 @@ static FILE* open_pipe(char* command, char* arg) {
             dup2(fd[0], STDIN_FILENO);
             dup2(STDERR_FILENO, STDOUT_FILENO);
             close(fd[0]);
-            execlp(command, arg);
+            execlp(command, arg, (char*)0);
             sfail(command);
     }
     close(fd[0]);
