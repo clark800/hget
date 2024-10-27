@@ -383,7 +383,7 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         FILE* out = open_file(dest);
         if (dump)
             write_out(out, buffer, body - buffer); // write header
-        if (strncasecmp(method, "HEAD", 5) != 0) {
+        if (strcmp(method, "HEAD") != 0) {
             if (is_chunked(buffer))
                 write_chunks(sock, tls, buffer, body, n, out);
             else
