@@ -515,8 +515,11 @@ int main(int argc, char *argv[]) {
         }
     }
 
-    if (optind != argc - 1)
-        fail("Usage: hget [options] <url>\n"
+    if (optind != argc - 1) {
+        if (wget)
+            fail("Usage: wget [-q] [-O <dest>] <url>", EUSAGE);
+        else
+            fail("Usage: hget [options] <url>\n"
              "Options:\n"
              "  -o <dest>       write output to the specified file\n"
              "  -u              only download if server file is newer\n"
@@ -530,6 +533,7 @@ int main(int argc, char *argv[]) {
              "  -b <body>       set the body of the request\n"
              "  -c <cacerts>    use the specified CA certificates file"
              , EUSAGE);
+    }
 
     if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
