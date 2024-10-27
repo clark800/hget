@@ -372,7 +372,7 @@ static void print_status_line(char* response) {
 }
 
 static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
-        int dump, int ignore, FILE* bar) {
+        char* method, int dump, int ignore, FILE* bar) {
     size_t N = BUFSIZE;
     size_t n = read_head(sock, tls, buffer, N - 1);  // may read more than head
     buffer[n] = '\0';
@@ -383,10 +383,12 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
         FILE* out = open_file(dest);
         if (dump)
             write_out(out, buffer, body - buffer); // write header
-        if (is_chunked(buffer))
-            write_chunks(sock, tls, buffer, body, n, out);
-        else
-            write_body(sock, tls, buffer, body, n, out, bar);
+        if (strncasecmp(method, "HEAD", 5) != 0) {
+            if (is_chunked(buffer))
+                write_chunks(sock, tls, buffer, body, n, out);
+            else
+                write_body(sock, tls, buffer, body, n, out, bar);
+        }
         if (fclose(out) != 0)
             sfail("close failed");
     }
@@ -407,8 +409,8 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
         sfail("fdopen failed");
 
     request(buffer, sock, tls, url, method, headers, body, dest, update);
-    int status_code = handle_response(buffer, sock, tls, dest, dump, ignore,
-                                      bar);
+    int status_code = handle_response(buffer, sock, tls, dest, method, dump,
+                                      ignore, bar);
 
     if (tls)
         end_tls(tls);
