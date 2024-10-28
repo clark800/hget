@@ -24,6 +24,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
     Usage: hget [options] <url>
     Options:
       -o <dest>       write output to the specified file
+      -t <timeout>    abort if connect takes too long (seconds)
       -u              only download if server file is newer
       -q              disable progress bar
       -f              force https connection even if it is insecure

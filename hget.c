@@ -21,7 +21,7 @@ typedef struct {
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
         int ignore, char* dest, int update, char* cacerts, int insecure,
-        FILE* bar, int redirects);
+        int timeout, FILE* bar, int redirects);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -154,7 +154,13 @@ static URL parse_url(char* str) {
     return url;
 }
 
-static int conn(char* host, char* port) {
+static void timeout_fail(int signal) {
+    (void)signal;
+    fail("error: timeout", EFAIL);
+}
+
+static int conn(char* host, char* port, int timeout) {
+    alarm(timeout);
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
         sfail("getaddrinfo failed");
@@ -168,6 +174,7 @@ static int conn(char* host, char* port) {
     if (connect(sockfd, server->ai_addr, server->ai_addrlen) != 0)
         sfail("connect failed");
 
+    alarm(0);
     freeaddrinfo(server);
     return sockfd;
 }
@@ -262,7 +269,7 @@ static char* skip_header(char* response) {
 
 static int redirect(char* location, char* method, char** headers, char* body,
         int dump, int ignore, char* dest, int update, char* cacerts,
-        int insecure, FILE* bar, int redirects) {
+        int insecure, int timeout, FILE* bar, int redirects) {
     if (redirects >= 20)
         fail("error: too many redirects", EFAIL);
     if (location == NULL)
@@ -272,7 +279,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
         fail("error: response headers too long", EFAIL);
     endline[0] = '\0';
     return get(parse_url(location), method, headers, body, dump, ignore, dest,
-               update, cacerts, insecure, bar, redirects + 1);
+               update, cacerts, insecure, timeout, bar, redirects + 1);
 }
 
 static FILE* open_file(char* dest) {
@@ -416,9 +423,9 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
 
 static int get(URL url, char* method, char** headers, char* body, int dump,
         int ignore, char* dest, int update, char* cacerts, int insecure,
-        FILE* bar, int redirects) {
+        int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
-    int sockfd = conn(url.host, url.port);
+    int sockfd = conn(url.host, url.port, timeout);
     int https = strcmp(url.scheme, "https") == 0;
     TLS* tls = https ? start_tls(sockfd, url.host, cacerts, insecure) : NULL;
     FILE* sock = fdopen(sockfd, "r+");
@@ -435,7 +442,7 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     if (!ignore && status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
             status_code == 303 ? "GET" : method, headers, body, dump, ignore,
-            dest, update, cacerts, insecure, bar, redirects);
+            dest, update, cacerts, insecure, timeout, bar, redirects);
     return status_code;
 }
 
@@ -476,14 +483,15 @@ static FILE* open_pipe(char* command, char* arg) {
 
 int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
-    int ignore = 0, wget = strcmp(get_filename(argv[0]), "wget") == 0;
+    int ignore = 0, timeout = 0;
+    int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
     char* auth = NULL;
     char* cacerts = CA_BUNDLE;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:a:c:m:h:b:dfqui";
+    const char* opts = wget ? "O:q" : "o:t:a:c:m:h:b:dfqui";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -497,6 +505,9 @@ int main(int argc, char *argv[]) {
                 break;
             case 'f':
                 insecure = 1;
+                break;
+            case 't':
+                timeout = atoi(optarg);
                 break;
             case 'a':
                 auth = optarg;
@@ -539,6 +550,7 @@ int main(int argc, char *argv[]) {
             fail("Usage: hget [options] <url>\n"
              "Options:\n"
              "  -o <dest>       write output to the specified file\n"
+             "  -t <timeout>    abort if connect takes too long (seconds)\n"
              "  -u              only download if server file is newer\n"
              "  -q              disable progress bar\n"
              "  -f              force https connection even if it is insecure\n"
@@ -569,9 +581,12 @@ int main(int argc, char *argv[]) {
             dest = "index.html";
     }
 
+    if (timeout)
+        signal(SIGALRM, timeout_fail);
+
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     int status_code = get(url, method, headers, body, dump, ignore, dest,
-                          update, cacerts, insecure, bar, 0);
+                          update, cacerts, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
