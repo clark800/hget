@@ -59,10 +59,22 @@ static void sfail(const char* message) {
     exit(EFAIL);
 }
 
+// reads at least one line unless EOF is reached (may read more in tls case)
+static size_t sreadln(FILE* sock, TLS* tls, void* buf, size_t len) {
+    if (tls)
+        return read_tls_until(tls, buf, len, "\n");
+    char* s = fgets(buf, len, sock);
+    if (ferror(sock))
+        sfail("receive failed");
+    return s ? strlen(buf) : 0;
+}
+
+// reads until len bytes are read or EOF is reached
 static size_t sread(FILE* sock, TLS* tls, void* buf, size_t len) {
-    size_t n = tls ? read_tls_until(tls, buf, len, "\n") :
-                     fread(buf, 1, len, sock);
-    if (!tls && ferror(sock))
+    if (tls)
+        return read_tls_until(tls, buf, len, NULL);
+    size_t n = fread(buf, 1, len, sock);
+    if (ferror(sock))
         sfail("receive failed");
     return n;
 }
@@ -307,7 +319,7 @@ static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
     // first we need to make sure that we have the complete chunk size line
     char* newline = memchr(buffer, '\n', n);
     if (!newline)
-        n += sread(sock, tls, buffer + n, N - n);
+        n += sreadln(sock, tls, buffer + n, N - n);
     newline = memchr(buffer, '\n', n);
     if (!newline)
         fail("error: invalid chunked encoding (no newline)", EFAIL);
@@ -336,7 +348,7 @@ static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
     // skip \r\n at end of chunk
     if (m + 2 > n) {
         n = shift(buffer, buffer + m, n - m);
-        n += sread(sock, tls, buffer + n, N - n);
+        n += sreadln(sock, tls, buffer + n, N - n);
         m = 0;
     }
     if (m + 2 > n || buffer[m] != '\r' || buffer[m + 1] != '\n')
