@@ -548,20 +548,20 @@ int main(int argc, char *argv[]) {
             fail("Usage: wget [-q] [-O <dest>] <url>", EUSAGE);
         else
             fail("Usage: hget [options] <url>\n"
-             "Options:\n"
-             "  -o <dest>       write output to the specified file\n"
-             "  -t <timeout>    abort if connect takes too long (seconds)\n"
-             "  -u              only download if server file is newer\n"
-             "  -q              disable progress bar\n"
-             "  -f              force https connection even if it is insecure\n"
-             "  -d              dump full response including headers\n"
-             "  -i              ignore response status; always print response\n"
-             "  -a <user:pass>  add http basic authentication header\n"
-             "  -m <method>     set the http request method\n"
-             "  -h <header>     add a header to the request (may be repeated)\n"
-             "  -b <body>       set the body of the request\n"
-             "  -c <cacerts>    use the specified CA certificates file"
-             , EUSAGE);
+            "Options:\n"
+            "  -o <dest>       write output to the specified file\n"
+            "  -t <timeout>    abort if connect takes too long (seconds)\n"
+            "  -u              only download if server file is newer\n"
+            "  -q              disable progress bar\n"
+            "  -f              force https connection even if it is insecure\n"
+            "  -d              dump full response including headers\n"
+            "  -i              ignore response status; always output response\n"
+            "  -a <user:pass>  add http basic authentication header\n"
+            "  -m <method>     set the http request method\n"
+            "  -h <header>     add a header to the request (may be repeated)\n"
+            "  -b <body>       set the body of the request\n"
+            "  -c <cacerts>    use the specified CA certificates file"
+            , EUSAGE);
     }
 
     if (is_stdout(dest) && isatty(1))

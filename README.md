@@ -29,7 +29,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -q              disable progress bar
       -f              force https connection even if it is insecure
       -d              dump full response including headers
-      -i              ignore response status; always print response
+      -i              ignore response status; always output response
       -a <user:pass>  add http basic authentication header
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
