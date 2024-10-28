@@ -27,6 +27,11 @@ static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
 }
 
+static int is_stdout(char* dest) {
+    // "-" is interpreted as stdout for compatibility with wget
+    return dest == NULL || strcmp(dest, "-") == 0;
+}
+
 static int isdir(const char* path) {
     // "If the named file is a symbolic link, the stat() function shall
     // continue pathname resolution using the contents of the symbolic link,
@@ -190,7 +195,7 @@ static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
         n += 4 * ((m + 2) / 3);
         n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     }
-    if (update && dest && strcmp(dest, "-") != 0 && stat(dest, &sb) == 0) {
+    if (update && !is_stdout(dest) && stat(dest, &sb) == 0) {
         char time[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
@@ -271,7 +276,7 @@ static int redirect(char* location, char* method, char** headers, char* body,
 }
 
 static FILE* open_file(char* dest) {
-    if (dest == NULL || strcmp(dest, "-") == 0)
+    if (is_stdout(dest))
         return stdout;
     FILE* out = fopen(dest, "w");
     if (out == NULL)
@@ -547,7 +552,7 @@ int main(int argc, char *argv[]) {
              , EUSAGE);
     }
 
-    if ((dest == NULL || strcmp(dest, "-") == 0) && isatty(1))
+    if (is_stdout(dest) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
@@ -556,7 +561,7 @@ int main(int argc, char *argv[]) {
     if (auth)
         url.userinfo = auth;
 
-    if (dest != NULL && strcmp(dest, "-") != 0 && isdir(dest)) {
+    if (!is_stdout(dest) && isdir(dest)) {
         if (chdir(dest) != 0)
             fail("Directory is not accessible", EUSAGE);
         dest = get_filename(url.path);
