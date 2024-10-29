@@ -59,6 +59,11 @@ static void* fail(const char* message, int status) {
     return NULL;
 }
 
+static void timeout_fail(int signal) {
+    (void)signal;
+    fail("error: timeout", EFAIL);
+}
+
 static void sfail(const char* message) {
     perror(message);
     exit(EFAIL);
@@ -145,11 +150,6 @@ static URL parse_url(char* str) {
 
     url.host = str;
     return url;
-}
-
-static void timeout_fail(int signal) {
-    (void)signal;
-    fail("error: timeout", EFAIL);
 }
 
 static int conn(char* host, char* port, int timeout) {
@@ -253,13 +253,6 @@ static char* get_header(char* response, char* name) {
     return fail("error: response headers too long", EFAIL);
 }
 
-static char* skip_header(char* response) {
-    char* end = strstr(response, "\r\n\r\n");
-    if (end == NULL)
-        fail("error: response headers too long", EFAIL);
-    return end + 4;
-}
-
 static int redirect(char* location, char* method, char** headers, char* body,
         int dump, int ignore, char* dest, int update, char* cacerts,
         int insecure, int timeout, FILE* bar, int redirects) {
@@ -289,81 +282,51 @@ static size_t read_head(FILE* sock, char* buf, size_t len) {
     for (n = 0; n < len && fgets(buf + n, len - n, sock); n += strlen(buf + n))
         if (strcmp(buf + n, "\r\n") == 0)
             return n + 2;
-    return n;
+    return 0;
 }
 
-static size_t write_body(FILE* sock, char* buffer, char* body,
-        size_t n, FILE* out, FILE* bar) {
-    size_t N = BUFSIZE, headlen = body - buffer;
+static size_t write_body(FILE* sock, char* buffer, FILE* out, FILE* bar) {
+    size_t N = BUFSIZE;
     char* length = get_header(buffer, "Content-Length:");
     size_t size = length ? strtoll(length, NULL, 10) : 0;
-    size_t progress = write_body_span(out, body, n - headlen, 0, size, bar);
-    for (n = N; n > 0 && (size == 0 || progress < size);) {
+    if (size == 0 && length[0] == '0')
+        return 0;
+    size_t progress = 0;
+    for (size_t n = 1; n > 0 && (size == 0 || progress < size); progress += n) {
         n = sread(sock, buffer, size ? min(size - progress, N) : N);
-        progress += write_body_span(out, buffer, n, progress, size, bar);
+        write_body_span(out, buffer, n, progress, size, bar);
     }
     if (size && progress != size)
         fail("connection closed before all data was received", EFAIL);
     return progress;
 }
 
-static size_t shift(char* buffer, char* start, size_t n) {
-    memmove(buffer, start, n);
-    return n;
-}
-
-// assumes that buffer starts with a chunk size line
-// n is the number of characters that have been read into the buffer
-// m is the number of characters in the buffer already or about to be written
-static size_t write_chunk(FILE* sock, char* buffer, size_t n,
-        FILE* out) {
+static size_t write_chunk(FILE* sock, char* buffer, FILE* out) {
     size_t N = BUFSIZE;
-    // first we need to make sure that we have the complete chunk size line
-    char* newline = memchr(buffer, '\n', n);
-    if (!newline)
-        n += sreadln(sock, buffer + n, N - n);
-    newline = memchr(buffer, '\n', n);
-    if (!newline)
-        fail("error: invalid chunked encoding (no newline)", EFAIL);
+    size_t n = sreadln(sock, buffer, N);
     size_t size = (size_t)strtoul(buffer, NULL, 16);
-    if (size == 0) {
-        if (buffer[0] != '0')
-            fail("error: invalid chunked encoding (no terminator)", EFAIL);
-        return SIZE_MAX;
-    }
-
-    char* chunk = newline + 1;
-    size_t prefixlen = chunk - buffer;
-    n = shift(buffer, chunk, n - prefixlen);
-    size_t m = write_out(out, buffer, min(size, n));
-    size_t progress = m;
-    for (; progress < size; progress += m) { //+ 2 for \r\n
+    if (size == 0 && buffer[0] != '0')
+        fail("error: invalid chunked encoding (no terminator)", EFAIL);
+    if (size == 0)
+        return 0;
+    size_t progress = 0;
+    for (; n > 0 && progress < size + 2; progress += n) {
         n = sread(sock, buffer, min((size + 2) - progress, N));
-        m = write_out(out, buffer, min(size - progress, n));
-        if (n == 0)
-            break;
+        write_out(out, buffer, min(size - min(progress, size), n));
     }
-    if (progress < size)
+    if (progress < size + 2)
         fail("error: invalid chunked encoding (incorrect length)", EFAIL);
-    fflush(out);
-
-    // skip \r\n at end of chunk
-    if (m + 2 > n) {
-        n = shift(buffer, buffer + m, n - m);
-        n += sreadln(sock, buffer + n, N - n);
-        m = 0;
-    }
-    if (m + 2 > n || buffer[m] != '\r' || buffer[m + 1] != '\n')
+    if (n == 0 || buffer[n - 1] != '\n')
         fail("error: invalid chunked encoding (missing \\r\\n)", EFAIL);
-    return shift(buffer, buffer + m + 2, n - (m + 2));
+    fflush(out);
+    return size;
 }
 
-static void write_chunks(FILE* sock, char* buffer, char* body,
-        size_t n, FILE* out) {
-    size_t headlen = body - buffer;
-    n = shift(buffer, body, n - headlen);
-    do n = write_chunk(sock, buffer, n, out);
-    while (n != SIZE_MAX);
+static size_t write_chunks(FILE* sock, char* buffer, FILE* out) {
+    size_t n = 0;
+    for (size_t m = 1; m > 0; n += m)
+        m = write_chunk(sock, buffer, out);
+    return n;
 }
 
 static int is_chunked(char* header) {
@@ -387,21 +350,19 @@ static void print_status_line(char* response) {
 
 static int handle_response(char* buffer, FILE* sock, char* dest,
         char* method, int dump, int ignore, FILE* bar) {
-    size_t N = BUFSIZE;
-    size_t n = read_head(sock, buffer, N - 1);  // may read more than head
-    buffer[n] = '\0';
-
+    size_t headlen = read_head(sock, buffer, BUFSIZE);
+    if (headlen == 0)
+        fail("error: response headers too long", EFAIL);
     int status_code = parse_status_line(buffer);
     if (ignore || status_code / 100 == 2) {
-        char* body = skip_header(buffer);
         FILE* out = open_file(dest);
         if (dump)
-            write_out(out, buffer, body - buffer); // write header
+            write_out(out, buffer, headlen);
         if (strcmp(method, "HEAD") != 0) {
             if (is_chunked(buffer))
-                write_chunks(sock, buffer, body, n, out);
+                write_chunks(sock, buffer, out);
             else
-                write_body(sock, buffer, body, n, out, bar);
+                write_body(sock, buffer, out, bar);
         }
         if (fclose(out) != 0)
             sfail("close failed");
