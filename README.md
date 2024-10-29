@@ -14,10 +14,11 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 * Exit status codes are more helpful than curl defaults.
 
 #### Size
-* Under 600 lines of code (<0.5% the size of curl at ~134,000 lines)
-* 66KB static binary without https support
-* 234KB static binary with https support
+* About 600 lines of code (<0.5% the size of curl at ~134,000 lines)
 
+#### Portability
+* Should be portable to any POSIX-like system that has either
+  fopencookie (Linux) or funopen (BSD).
 
 # Usage
 

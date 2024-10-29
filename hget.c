@@ -64,10 +64,7 @@ static void sfail(const char* message) {
     exit(EFAIL);
 }
 
-// reads at least one line unless EOF is reached (may read more in tls case)
-static size_t sreadln(FILE* sock, TLS* tls, void* buf, size_t len) {
-    if (tls)
-        return read_tls_until(tls, buf, len, "\n");
+static size_t sreadln(FILE* sock, void* buf, size_t len) {
     char* s = fgets(buf, len, sock);
     if (ferror(sock))
         sfail("receive failed");
@@ -75,20 +72,16 @@ static size_t sreadln(FILE* sock, TLS* tls, void* buf, size_t len) {
 }
 
 // reads until len bytes are read or EOF is reached
-static size_t sread(FILE* sock, TLS* tls, void* buf, size_t len) {
-    if (tls)
-        return read_tls_until(tls, buf, len, NULL);
+static size_t sread(FILE* sock, void* buf, size_t len) {
     size_t n = fread(buf, 1, len, sock);
     if (ferror(sock))
         sfail("receive failed");
     return n;
 }
 
-static void swrite(FILE* sock, TLS* tls, const char* buf) {
+static void swrite(FILE* sock, const char* buf) {
     size_t size = strlen(buf);
-    if (tls) {
-        write_tls(tls, buf, size);
-    } else if (fwrite(buf, 1, size, sock) < size)
+    if (fwrite(buf, 1, size, sock) < size)
         sfail("send failed");
 }
 
@@ -179,7 +172,7 @@ static int conn(char* host, char* port, int timeout) {
     return sockfd;
 }
 
-static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
+static void request(char* buffer, FILE* sock, URL url, char* method,
         char** headers, char* body, char* dest, int update) {
     struct stat sb;
     size_t n = 0, N = BUFSIZE;
@@ -221,11 +214,11 @@ static void request(char* buffer, FILE* sock, TLS* tls, URL url, char* method,
 
     if (body && strlen(body) < (n < N ? N - n : 0)) {
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s", body);
-        swrite(sock, tls, buffer);
+        swrite(sock, buffer);
     } else {
-        swrite(sock, tls, buffer);
+        swrite(sock, buffer);
         if (body)
-            swrite(sock, tls, body);
+            swrite(sock, body);
     }
 }
 
@@ -291,10 +284,7 @@ static FILE* open_file(char* dest) {
     return out;
 }
 
-static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
-    if (tls)
-        return read_tls_until(tls, buf, len, "\r\n\r\n");
-
+static size_t read_head(FILE* sock, char* buf, size_t len) {
     size_t n;
     for (n = 0; n < len && fgets(buf + n, len - n, sock); n += strlen(buf + n))
         if (strcmp(buf + n, "\r\n") == 0)
@@ -302,14 +292,14 @@ static size_t read_head(FILE* sock, TLS* tls, char* buf, size_t len) {
     return n;
 }
 
-static size_t write_body(FILE* sock, TLS* tls, char* buffer, char* body,
+static size_t write_body(FILE* sock, char* buffer, char* body,
         size_t n, FILE* out, FILE* bar) {
     size_t N = BUFSIZE, headlen = body - buffer;
     char* length = get_header(buffer, "Content-Length:");
     size_t size = length ? strtoll(length, NULL, 10) : 0;
     size_t progress = write_body_span(out, body, n - headlen, 0, size, bar);
     for (n = N; n > 0 && (size == 0 || progress < size);) {
-        n = sread(sock, tls, buffer, size ? min(size - progress, N) : N);
+        n = sread(sock, buffer, size ? min(size - progress, N) : N);
         progress += write_body_span(out, buffer, n, progress, size, bar);
     }
     if (size && progress != size)
@@ -325,13 +315,13 @@ static size_t shift(char* buffer, char* start, size_t n) {
 // assumes that buffer starts with a chunk size line
 // n is the number of characters that have been read into the buffer
 // m is the number of characters in the buffer already or about to be written
-static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
+static size_t write_chunk(FILE* sock, char* buffer, size_t n,
         FILE* out) {
     size_t N = BUFSIZE;
     // first we need to make sure that we have the complete chunk size line
     char* newline = memchr(buffer, '\n', n);
     if (!newline)
-        n += sreadln(sock, tls, buffer + n, N - n);
+        n += sreadln(sock, buffer + n, N - n);
     newline = memchr(buffer, '\n', n);
     if (!newline)
         fail("error: invalid chunked encoding (no newline)", EFAIL);
@@ -348,7 +338,7 @@ static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
     size_t m = write_out(out, buffer, min(size, n));
     size_t progress = m;
     for (; progress < size; progress += m) { //+ 2 for \r\n
-        n = sread(sock, tls, buffer, min((size + 2) - progress, N));
+        n = sread(sock, buffer, min((size + 2) - progress, N));
         m = write_out(out, buffer, min(size - progress, n));
         if (n == 0)
             break;
@@ -360,7 +350,7 @@ static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
     // skip \r\n at end of chunk
     if (m + 2 > n) {
         n = shift(buffer, buffer + m, n - m);
-        n += sreadln(sock, tls, buffer + n, N - n);
+        n += sreadln(sock, buffer + n, N - n);
         m = 0;
     }
     if (m + 2 > n || buffer[m] != '\r' || buffer[m + 1] != '\n')
@@ -368,11 +358,11 @@ static size_t write_chunk(FILE* sock, TLS* tls, char* buffer, size_t n,
     return shift(buffer, buffer + m + 2, n - (m + 2));
 }
 
-static void write_chunks(FILE* sock, TLS* tls, char* buffer, char* body,
+static void write_chunks(FILE* sock, char* buffer, char* body,
         size_t n, FILE* out) {
     size_t headlen = body - buffer;
     n = shift(buffer, body, n - headlen);
-    do n = write_chunk(sock, tls, buffer, n, out);
+    do n = write_chunk(sock, buffer, n, out);
     while (n != SIZE_MAX);
 }
 
@@ -395,10 +385,10 @@ static void print_status_line(char* response) {
     fputc('\n', stderr);
 }
 
-static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
+static int handle_response(char* buffer, FILE* sock, char* dest,
         char* method, int dump, int ignore, FILE* bar) {
     size_t N = BUFSIZE;
-    size_t n = read_head(sock, tls, buffer, N - 1);  // may read more than head
+    size_t n = read_head(sock, buffer, N - 1);  // may read more than head
     buffer[n] = '\0';
 
     int status_code = parse_status_line(buffer);
@@ -409,9 +399,9 @@ static int handle_response(char* buffer, FILE* sock, TLS* tls, char* dest,
             write_out(out, buffer, body - buffer); // write header
         if (strcmp(method, "HEAD") != 0) {
             if (is_chunked(buffer))
-                write_chunks(sock, tls, buffer, body, n, out);
+                write_chunks(sock, buffer, body, n, out);
             else
-                write_body(sock, tls, buffer, body, n, out, bar);
+                write_body(sock, buffer, body, n, out, bar);
         }
         if (fclose(out) != 0)
             sfail("close failed");
@@ -427,17 +417,15 @@ static int get(URL url, char* method, char** headers, char* body, int dump,
     char buffer[BUFSIZE];
     int sockfd = conn(url.host, url.port, timeout);
     int https = strcmp(url.scheme, "https") == 0;
-    TLS* tls = https ? start_tls(sockfd, url.host, cacerts, insecure) : NULL;
-    FILE* sock = fdopen(sockfd, "r+");
+    FILE* sock = https ? fopentls(sockfd, url.host, cacerts, insecure) :
+        fdopen(sockfd, "r+");
     if (sock == NULL)
-        sfail("fdopen failed");
+        sfail(https ? "start TLS failed" : "fdopen failed");
 
-    request(buffer, sock, tls, url, method, headers, body, dest, update);
-    int status_code = handle_response(buffer, sock, tls, dest, method, dump,
+    request(buffer, sock, url, method, headers, body, dest, update);
+    int status_code = handle_response(buffer, sock, dest, method, dump,
                                       ignore, bar);
 
-    if (tls)
-        end_tls(tls);
     fclose(sock);
     if (!ignore && status_code / 100 == 3 && status_code != 304)
         return redirect(get_header(buffer, "Location:"),
