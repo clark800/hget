@@ -47,7 +47,7 @@ static char* get_filename(char* path) {
     return slash ? slash + 1 : path;
 }
 
-static void base64encode(const char* in, size_t n, char* out) {
+static size_t base64encode(const char* in, size_t n, char* out) {
     char* E = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     for (size_t i = 0, j = 0, w = 0; i < 4 * ((n + 2) / 3); i++) {
         if (i % 4 != 3)
@@ -55,6 +55,7 @@ static void base64encode(const char* in, size_t n, char* out) {
         out[i] = i <= (4 * n) / 3 ? E[(w >> 2 * ((i + 1) % 4)) & 63] : '=';
     }
     out[4 * ((n + 2) / 3)] = 0;
+    return 4 * ((n + 2) / 3);
 }
 
 static void* fail(const char* message, int status) {
@@ -184,6 +185,16 @@ static int conn(char* host, char* port, int timeout) {
     return sockfd;
 }
 
+static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
+    size_t m = strlen(auth);
+    size_t n = snprintf(buffer, N, "%s: Basic ", name);
+    if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
+        fail("error: auth string too long", EFAIL);
+    n += base64encode(auth, m, buffer + n);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
+    return n;
+}
+
 static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         char* method, char** headers, char* body, char* dest, int update) {
     struct stat sb;
@@ -200,22 +211,18 @@ static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
             n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
     }
     n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.1\r\n");
+    if (proxy.userinfo && proxy.userinfo[0])
+        n += write_auth(buffer + n, n < N ? N - n : 0, "Proxy-Authorization",
+                proxy.userinfo);
+
     n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
     n += snprintf(buffer + n, n < N ? N - n : 0, "Connection: close\r\n");
     n += snprintf(buffer + n, n < N ? N - n : 0,
             "Accept-Encoding: identity\r\n");
     if (!auth)
         auth = url.userinfo;
-    if (auth && auth[0]) {
-        size_t m = strlen(auth);
-        if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
-            fail("error: auth string too long", EFAIL);
-        n += snprintf(buffer + n, n < N ? N - n : 0,
-            "Authorization: Basic ");
-        base64encode(auth, m, buffer + n);
-        n += 4 * ((m + 2) / 3);
-        n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
-    }
+    if (auth && auth[0])
+        n += write_auth(buffer + n, n < N ? N - n : 0, "Authorization", auth);
     if (update && !is_stdout(dest) && stat(dest, &sb) == 0) {
         char time[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
