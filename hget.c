@@ -16,12 +16,12 @@
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 typedef struct {
-    char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
+    char *url, *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
-static int get(URL url, char* method, char** headers, char* body, int dump,
-        int ignore, char* dest, int update, char* cacerts, int insecure,
-        int timeout, FILE* bar, int redirects);
+static int get(URL url, URL proxy, char* auth, char* method, char** headers,
+        char* body, int dump, int ignore, char* dest, int update, char* cacerts,
+        int insecure, int timeout, FILE* bar, int redirects);
 
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
@@ -40,6 +40,11 @@ static int isdir(const char* path) {
     // (https://pubs.opengroup.org/onlinepubs/000095399/functions/stat.html)
     struct stat sb;
     return path != NULL && stat(path, &sb) == 0 && (sb.st_mode & S_IFDIR);
+}
+
+static char* get_filename(char* path) {
+    char* slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
 }
 
 static void base64encode(const char* in, size_t n, char* out) {
@@ -104,8 +109,13 @@ static size_t write_body_span(FILE* out, void* buf, size_t len,
     return len;
 }
 
-static URL parse_url(char* str) {
-    URL url = {.scheme="http", .userinfo="", .path="", .query="", .fragment=""};
+static URL parse_url(char* str, char* buffer) {
+    // truncate at \r or \n in case this is a location header
+    str[strcspn(str, "\r\n")] = 0;
+
+    // url.url is the full url without the fragment
+    URL url = {.url=str, .scheme="http", .userinfo="", .path="", .query="",
+               .fragment=""};
     url.port = strncmp(str, "https://", 8) == 0 ? "443" : "80";
 
     // fragment can contain any character, so chop off first
@@ -114,6 +124,8 @@ static URL parse_url(char* str) {
         hash[0] = '\0';
         url.fragment = hash + 1;
     }
+
+    str = strcpy(buffer, str);
 
     char* question = strchr(str, '?');
     if (question) {
@@ -172,26 +184,35 @@ static int conn(char* host, char* port, int timeout) {
     return sockfd;
 }
 
-static void request(char* buffer, FILE* sock, URL url, char* method,
-        char** headers, char* body, char* dest, int update) {
+static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
+        char* method, char** headers, char* body, char* dest, int update) {
     struct stat sb;
     size_t n = 0, N = BUFSIZE;
 
-    n += snprintf(buffer + n, n < N ? N - n : 0, "%s /%s", method, url.path);
-    if (url.query[0])
-        n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method);
+    if (proxy.host) {
+        if (!strstr(url.url, "://"))
+            n += snprintf(buffer + n, n < N ? N - n : 0, "%s://", url.scheme);
+        n += snprintf(buffer + n, n < N ? N - n : 0, "%s", url.url);
+    } else {
+        n += snprintf(buffer + n, n < N ? N - n : 0, "/%s", url.path);
+        if (url.query[0])
+            n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
+    }
     n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.1\r\n");
     n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
     n += snprintf(buffer + n, n < N ? N - n : 0, "Connection: close\r\n");
     n += snprintf(buffer + n, n < N ? N - n : 0,
             "Accept-Encoding: identity\r\n");
-    if (url.userinfo[0]) {
-        size_t m = strlen(url.userinfo);
+    if (!auth)
+        auth = url.userinfo;
+    if (auth && auth[0]) {
+        size_t m = strlen(auth);
         if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
             fail("error: auth string too long", EFAIL);
         n += snprintf(buffer + n, n < N ? N - n : 0,
             "Authorization: Basic ");
-        base64encode(url.userinfo, m, buffer + n);
+        base64encode(auth, m, buffer + n);
         n += 4 * ((m + 2) / 3);
         n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     }
@@ -253,24 +274,16 @@ static char* get_header(char* response, char* name) {
     return fail("error: response headers too long", EFAIL);
 }
 
-static int redirect(char* location, char* method, char** headers, char* body,
-        int dump, int ignore, char* dest, int update, char* cacerts,
-        int insecure, int timeout, FILE* bar, int redirects) {
-    if (redirects >= 20)
-        fail("error: too many redirects", EFAIL);
-    if (location == NULL)
-        fail("error: redirect missing location", EFAIL);
-    char* endline = strstr(location, "\r\n");
-    if (endline == NULL)
-        fail("error: response headers too long", EFAIL);
-    endline[0] = '\0';
-    return get(parse_url(location), method, headers, body, dump, ignore, dest,
-               update, cacerts, insecure, timeout, bar, redirects + 1);
-}
-
-static FILE* open_file(char* dest) {
+static FILE* open_file(char* dest, URL url) {
     if (is_stdout(dest))
         return stdout;
+
+    if (isdir(dest)) {
+        dest = get_filename(url.path);  // already chdir to dest in main
+        if (dest == NULL || dest[0] == '\0')
+            dest = "index.html";
+    }
+
     FILE* out = fopen(dest, "w");
     if (out == NULL)
         sfail("open failed");
@@ -348,14 +361,14 @@ static void print_status_line(char* response) {
     fputc('\n', stderr);
 }
 
-static int handle_response(char* buffer, FILE* sock, char* dest,
+static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
         char* method, int dump, int ignore, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     if (headlen == 0)
         fail("error: response headers too long", EFAIL);
     int status_code = parse_status_line(buffer);
     if (ignore || status_code / 100 == 2) {
-        FILE* out = open_file(dest);
+        FILE* out = open_file(dest, url);
         if (dump)
             write_out(out, buffer, headlen);
         if (strcmp(method, "HEAD") != 0) {
@@ -372,32 +385,39 @@ static int handle_response(char* buffer, FILE* sock, char* dest,
     return status_code;
 }
 
-static int get(URL url, char* method, char** headers, char* body, int dump,
-        int ignore, char* dest, int update, char* cacerts, int insecure,
-        int timeout, FILE* bar, int redirects) {
-    char buffer[BUFSIZE];
-    int sockfd = conn(url.host, url.port, timeout);
-    int https = strcmp(url.scheme, "https") == 0;
-    FILE* sock = https ? fopentls(sockfd, url.host, cacerts, insecure) :
+static FILE* opensock(URL server, char* cacerts, int insecure, int timeout) {
+    (void)cacerts, (void)insecure; // prevent unused warning for non-https build
+    int sockfd = conn(server.host, server.port, timeout);
+    int https = strcmp(server.scheme, "https") == 0;
+    FILE* sock = https ? fopentls(sockfd, server.host, cacerts, insecure) :
         fdopen(sockfd, "r+");
     if (sock == NULL)
         sfail(https ? "start TLS failed" : "fdopen failed");
-
-    request(buffer, sock, url, method, headers, body, dest, update);
-    int status_code = handle_response(buffer, sock, dest, method, dump,
-                                      ignore, bar);
-
-    fclose(sock);
-    if (!ignore && status_code / 100 == 3 && status_code != 304)
-        return redirect(get_header(buffer, "Location:"),
-            status_code == 303 ? "GET" : method, headers, body, dump, ignore,
-            dest, update, cacerts, insecure, timeout, bar, redirects);
-    return status_code;
+    return sock;
 }
 
-static char* get_filename(char* path) {
-    char* slash = strrchr(path, '/');
-    return slash ? slash + 1 : path;
+static int get(URL url, URL proxy, char* auth, char* method, char** headers,
+        char* body, int dump, int ignore, char* dest, int update, char* cacerts,
+        int insecure, int timeout, FILE* bar, int redirects) {
+    char buffer[BUFSIZE];
+    FILE* sock = opensock(proxy.host ? proxy : url, cacerts, insecure, timeout);
+    request(buffer, sock, url, proxy, auth, method, headers, body, dest, update);
+    int status_code = handle_response(buffer, sock, url, dest, method,
+                                      dump, ignore, bar);
+    fclose(sock);
+    if (!ignore && status_code / 100 == 3 && status_code != 304) {
+        if (redirects >= 20)
+            fail("error: too many redirects", EFAIL);
+        char* location = get_header(buffer, "Location:");
+        if (location == NULL)
+            fail("error: redirect missing location", EFAIL);
+        char urlbuf[strlen(location)];
+        URL locurl = parse_url(location, urlbuf);
+        method = status_code == 303 ? "GET" : method;
+        return get(locurl, proxy, auth, method, headers, body, dump, ignore,
+               dest, update, cacerts, insecure, timeout, bar, redirects + 1);
+    }
+    return status_code;
 }
 
 static FILE* open_pipe(char* command, char* arg) {
@@ -435,12 +455,13 @@ int main(int argc, char *argv[]) {
     int ignore = 0, timeout = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
+    char* proxyurl = NULL;
     char* auth = NULL;
     char* cacerts = CA_BUNDLE;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:t:a:c:m:h:b:dfqui";
+    const char* opts = wget ? "O:q" : "o:p:t:a:c:m:h:b:dfqui";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -451,6 +472,9 @@ int main(int argc, char *argv[]) {
         switch (opt) {
             case 'd':
                 dump = 1;
+                break;
+            case 'p':
+                proxyurl = optarg;
                 break;
             case 'f':
                 insecure = 1;
@@ -494,12 +518,13 @@ int main(int argc, char *argv[]) {
 
     if (optind != argc - 1) {
         if (wget)
-            fail("Usage: wget [-q] [-O <dest>] <url>", EUSAGE);
+            fail("Usage: wget [-q] [-O <path>] <url>", EUSAGE);
         else
             fail("Usage: hget [options] <url>\n"
             "Options:\n"
-            "  -o <dest>       write output to the specified file\n"
-            "  -t <timeout>    abort if connect takes too long (seconds)\n"
+            "  -o <path>       write output to the specified file or directory\n"
+            "  -p <url>        use HTTP/HTTPS proxy\n"
+            "  -t <seconds>    set connection timeout\n"
             "  -u              only download if server file is newer\n"
             "  -q              disable progress bar\n"
             "  -f              force https connection even if it is insecure\n"
@@ -509,7 +534,7 @@ int main(int argc, char *argv[]) {
             "  -m <method>     set the http request method\n"
             "  -h <header>     add a header to the request (may be repeated)\n"
             "  -b <body>       set the body of the request\n"
-            "  -c <cacerts>    use the specified CA certificates file"
+            "  -c <path>       use the specified CA certificates file"
             , EUSAGE);
     }
 
@@ -517,25 +542,23 @@ int main(int argc, char *argv[]) {
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
-    URL url = parse_url(arg);
+    char buffer[strlen(arg)];
+    URL url = parse_url(arg, buffer);
+    char proxybuf[proxyurl ? strlen(proxyurl) : 0];
+    URL proxy = proxyurl ? parse_url(proxyurl, proxybuf) : (URL){0};
 
-    if (auth)
-        url.userinfo = auth;
+    if (!auth && url.userinfo[0])
+        auth = url.userinfo;  // so auth will apply to redirects
 
-    if (!is_stdout(dest) && isdir(dest)) {
-        if (chdir(dest) != 0)
-            fail("Directory is not accessible", EUSAGE);
-        dest = get_filename(url.path);
-        if (dest == NULL || dest[0] == '\0')
-            dest = "index.html";
-    }
+    if (!is_stdout(dest) && isdir(dest) && chdir(dest) != 0)
+        fail("error: directory is not accessible", EUSAGE);
 
     if (timeout)
         signal(SIGALRM, timeout_fail);
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status_code = get(url, method, headers, body, dump, ignore, dest,
-                          update, cacerts, insecure, timeout, bar, 0);
+    int status_code = get(url, proxy, auth, method, headers, body, dump, ignore,
+                          dest, update, cacerts, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon

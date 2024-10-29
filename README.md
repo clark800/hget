@@ -24,8 +24,9 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 
     Usage: hget [options] <url>
     Options:
-      -o <dest>       write output to the specified file
-      -t <timeout>    abort if connect takes too long (seconds)
+      -o <path>       write output to the specified file or directory
+      -p <url>        use HTTP/HTTPS proxy
+      -t <seconds>    set connection timeout
       -u              only download if server file is newer
       -q              disable progress bar
       -f              force https connection even if it is insecure
@@ -35,7 +36,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
       -b <body>       set the body of the request
-      -c <cacerts>    use the specified CA certificates file
+      -c <path>       use the specified CA certificates file
 
 To download a file to the current directory, use `hget -o. <url>`.
 
