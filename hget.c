@@ -16,7 +16,7 @@
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 typedef struct {
-    char *url, *scheme, *userinfo, *host, *port, *path, *query, *fragment;
+    char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
 static int get(URL url, URL proxy, char* auth, char* method, char** headers,
@@ -110,14 +110,12 @@ static size_t write_body_span(FILE* out, void* buf, size_t len,
     return len;
 }
 
-static URL parse_url(char* str, char* buffer) {
+static URL parse_url(char* str) {
     // truncate at \r or \n in case this is a location header
     str[strcspn(str, "\r\n")] = 0;
 
-    // url.url is the full url without the fragment
-    URL url = {.url=str, .scheme="http", .userinfo="", .path="", .query="",
-               .fragment=""};
-    url.port = strncmp(str, "https://", 8) == 0 ? "443" : "80";
+    URL url = {.scheme="", .userinfo="", .host="", .port="", .path="",
+               .query="", .fragment=""};
 
     // fragment can contain any character, so chop off first
     char* hash = strchr(str, '#');
@@ -125,8 +123,6 @@ static URL parse_url(char* str, char* buffer) {
         hash[0] = '\0';
         url.fragment = hash + 1;
     }
-
-    str = strcpy(buffer, str);
 
     char* question = strchr(str, '?');
     if (question) {
@@ -165,8 +161,10 @@ static URL parse_url(char* str, char* buffer) {
     return url;
 }
 
-static int conn(char* host, char* port, int timeout) {
+static int conn(int https, char* host, char* port, int timeout) {
     alarm(timeout);
+    if (!port || port[0] == 0)
+        port = https ? "443" : "80";
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
         sfail("getaddrinfo failed");
@@ -202,14 +200,15 @@ static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
 
     n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method);
     if (proxy.host) {
-        if (!strstr(url.url, "://"))
-            n += snprintf(buffer + n, n < N ? N - n : 0, "%s://", url.scheme);
-        n += snprintf(buffer + n, n < N ? N - n : 0, "%s", url.url);
-    } else {
-        n += snprintf(buffer + n, n < N ? N - n : 0, "/%s", url.path);
-        if (url.query[0])
-            n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
+        char* scheme = url.scheme[0] ? url.scheme : "http";
+        n += snprintf(buffer + n, n < N ? N - n : 0, "%s://", scheme);
+        n += snprintf(buffer + n, n < N ? N - n : 0, "%s", url.host);
+        if (url.port[0])
+            n += snprintf(buffer + n, n < N ? N - n : 0, ":%s", url.port);
     }
+    n += snprintf(buffer + n, n < N ? N - n : 0, "/%s", url.path);
+    if (url.query[0])
+        n += snprintf(buffer + n, n < N ? N - n : 0, "?%s", url.query);
     n += snprintf(buffer + n, n < N ? N - n : 0, " HTTP/1.1\r\n");
     if (proxy.userinfo && proxy.userinfo[0])
         n += write_auth(buffer + n, n < N ? N - n : 0, "Proxy-Authorization",
@@ -394,8 +393,8 @@ static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
 
 static FILE* opensock(URL server, char* cacerts, int insecure, int timeout) {
     (void)cacerts, (void)insecure; // prevent unused warning for non-https build
-    int sockfd = conn(server.host, server.port, timeout);
     int https = strcmp(server.scheme, "https") == 0;
+    int sockfd = conn(https, server.host, server.port, timeout);
     FILE* sock = https ? fopentls(sockfd, server.host, cacerts, insecure) :
         fdopen(sockfd, "r+");
     if (sock == NULL)
@@ -418,11 +417,9 @@ static int get(URL url, URL proxy, char* auth, char* method, char** headers,
         char* location = get_header(buffer, "Location:");
         if (location == NULL)
             fail("error: redirect missing location", EFAIL);
-        char urlbuf[strlen(location)];
-        URL locurl = parse_url(location, urlbuf);
-        method = status_code == 303 ? "GET" : method;
-        return get(locurl, proxy, auth, method, headers, body, dump, ignore,
-               dest, update, cacerts, insecure, timeout, bar, redirects + 1);
+        return get(parse_url(location), proxy, auth, status_code == 303 ?
+                "GET" : method, headers, body, dump, ignore, dest, update,
+                cacerts, insecure, timeout, bar, redirects + 1);
     }
     return status_code;
 }
@@ -549,10 +546,8 @@ int main(int argc, char *argv[]) {
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
-    char buffer[strlen(arg)];
-    URL url = parse_url(arg, buffer);
-    char proxybuf[proxyurl ? strlen(proxyurl) : 0];
-    URL proxy = proxyurl ? parse_url(proxyurl, proxybuf) : (URL){0};
+    URL url = parse_url(arg);
+    URL proxy = proxyurl ? parse_url(proxyurl) : (URL){0};
 
     if (!auth && url.userinfo[0])
         auth = url.userinfo;  // so auth will apply to redirects
