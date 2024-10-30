@@ -39,7 +39,7 @@ static int isdir(const char* path) {
     // file exists."
     // (https://pubs.opengroup.org/onlinepubs/000095399/functions/stat.html)
     struct stat sb;
-    return path != NULL && stat(path, &sb) == 0 && (sb.st_mode & S_IFDIR);
+    return path != NULL && stat(path, &sb) == 0 && S_ISDIR(sb.st_mode);
 }
 
 static char* get_filename(char* path) {
