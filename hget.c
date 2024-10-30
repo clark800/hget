@@ -552,6 +552,7 @@ int main(int argc, char *argv[]) {
                 if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 2))
                     fail("Too many header arguments", EUSAGE);
                 headers[nheaders++] = optarg;
+                break;
             case 'o':
             case 'O':
                 dest = optarg;
