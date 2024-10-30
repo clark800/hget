@@ -38,8 +38,7 @@ static ssize_t write_tls(void* tls, const char* buf, size_t len) {
     return n;
 }
 
-static void* start_tls(int sock, const char* host, const char* cacerts,
-        int insecure) {
+static struct tls* new_tls_client(const char* cacerts, int insecure) {
     struct tls_config* tls_config = tls_config_new();
     if (!tls_config)
         fail("failed to create tls config", NULL);
@@ -57,8 +56,6 @@ static void* start_tls(int sock, const char* host, const char* cacerts,
     if (tls_configure(tls, tls_config) != 0)
         fail("tls_configure", tls);
     tls_config_free(tls_config);
-    if (tls_connect_socket(tls, sock, host) != 0)
-        fail("tls_connect_socket", tls);
     return tls;
 }
 
@@ -71,8 +68,31 @@ static int end_tls(void* tls) {
     return 0;
 }
 
-FILE* fopentls(int sock, const char* host, const char* cacerts, int insecure) {
-    void* tls = start_tls(sock, host, cacerts, insecure);
+static FILE* fopentls(struct tls* tls) {
     return fopencookie(tls, "r+",
         (cookie_io_functions_t){read_tls, write_tls, NULL, end_tls});
+}
+
+static ssize_t reader(struct tls *tls, void *buf, size_t n, void *sock) {
+    (void)tls;
+    return fread(buf, 1, n, sock);
+}
+
+static ssize_t writer(struct tls *tls, const void *buf, size_t n, void *sock) {
+    (void)tls;
+    return fwrite(buf, 1, n, sock);
+}
+
+FILE* wrap_tls(FILE* sock, const char* host, const char* cacerts, int insecure) {
+    struct tls* tls = new_tls_client(cacerts, insecure);
+    if (tls_connect_cbs(tls, reader, writer, sock, host) != 0)
+        fail("tls_connect_cbs", tls);
+    return fopentls(tls);
+}
+
+FILE* start_tls(int sock, const char* host, const char* cacerts, int insecure) {
+    struct tls* tls = new_tls_client(cacerts, insecure);
+    if (tls_connect_socket(tls, sock, host) != 0)
+        fail("tls_connect_socket", tls);
+    return fopentls(tls);
 }

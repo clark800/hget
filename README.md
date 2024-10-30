@@ -25,7 +25,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
     Usage: hget [options] <url>
     Options:
       -o <path>       write output to the specified file or directory
-      -p <url>        use HTTP proxy
+      -p <url>        use HTTP/HTTPS tunneling proxy
       -t <seconds>    set connection timeout
       -u              only download if server file is newer
       -q              disable progress bar

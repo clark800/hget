@@ -157,25 +157,42 @@ static URL parse_url(char* str) {
     return url;
 }
 
-static int conn(char* scheme, char* host, char* port, int timeout) {
-    alarm(timeout);
-    if (!port || port[0] == 0)
-        port = strcmp(scheme, "https") == 0 ? "443" : "80";
-    struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
+static int try_conn(char* host, char* port, sa_family_t family) {
+    struct addrinfo *server;
+    struct addrinfo hints = {.ai_family = family, .ai_socktype = SOCK_STREAM};
+
     if (getaddrinfo(host, port, &hints, &server) != 0)
         sfail("getaddrinfo failed");
 
     int sockfd = socket(server->ai_family, server->ai_socktype,
         server->ai_protocol);
-
     if (sockfd == -1)
         sfail("socket create failed");
 
-    if (connect(sockfd, server->ai_addr, server->ai_addrlen) != 0)
+    int result = connect(sockfd, server->ai_addr, server->ai_addrlen);
+
+    freeaddrinfo(server);
+    if (result != 0)
+        close(sockfd);
+    return result == 0 ? sockfd : -1;
+}
+
+static int conn(char* scheme, char* host, char* port, int timeout) {
+    alarm(timeout);
+    if (!port || port[0] == 0)
+        port = strcmp(scheme, "https") == 0 ? "443" : "80";
+
+    int sockfd = try_conn(host, port, AF_UNSPEC);
+
+    // host could have both an ipv6 and ipv4 address and ipv6 will be returned
+    // first, but it's possible that the ipv6 address is blocked, so we try
+    // the ipv4 (AF_INET) address also
+    if (sockfd == -1)
+        sockfd = try_conn(host, port, AF_INET);
+    if (sockfd == -1)
         sfail("connect failed");
 
     alarm(0);
-    freeaddrinfo(server);
     return sockfd;
 }
 
@@ -388,6 +405,17 @@ static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
     return status_code;
 }
 
+static FILE* opensock(URL server, char* cacerts, int insecure, int timeout) {
+    (void)cacerts, (void)insecure; // prevent unused warning for non-https build
+    int sockfd = conn(server.scheme, server.host, server.port, timeout);
+    int https = strcmp(server.scheme, "https") == 0;
+    FILE* sock = https ? start_tls(sockfd, server.host, cacerts, insecure) :
+                         fdopen(sockfd, "r+");
+    if (sock == NULL)
+        sfail(https ? "error: start_tls failed" : "error: fdopen failed");
+    return sock;
+}
+
 static void send_proxy_connect(char* buffer, FILE* sock, URL url, URL proxy) {
     size_t n = 0, N = BUFSIZE;
     int url_https = strcmp(url.scheme, "https") == 0;
@@ -404,17 +432,11 @@ static void send_proxy_connect(char* buffer, FILE* sock, URL url, URL proxy) {
     swrite(sock, buffer);
 }
 
-static void proxy_connect(char* buffer, int sockfd, URL url, URL proxy) {
-    if (strcmp(proxy.scheme, "https") == 0)
-        fail("error: https proxy not implemented", EUSAGE);
-
-    FILE* sock = fdopen(dup(sockfd), "r+");
-    if (sock == NULL)
-        sfail("error: fdopen failed");
-
-    send_proxy_connect(buffer, sock, url, proxy);
-    read_head(sock, buffer, BUFSIZE);
-    fclose(sock);
+static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
+        char* cacerts, int insecure) {
+    (void)cacerts, (void)insecure;
+    send_proxy_connect(buffer, proxysock, url, proxy);
+    read_head(proxysock, buffer, BUFSIZE);
 
     int status_code = parse_status_line(buffer);
     if (status_code != 200) {
@@ -422,21 +444,13 @@ static void proxy_connect(char* buffer, int sockfd, URL url, URL proxy) {
         print_status_line(buffer);
         exit(EFAIL);
     }
-}
 
-static FILE* opensock(char* buffer, URL url, URL proxy, char* cacerts,
-        int insecure, int timeout) {
-    (void)cacerts, (void)insecure; // prevent unused warning for non-https build
-    URL server = proxy.host ? proxy : url;
-    int sockfd = conn(server.scheme, server.host, server.port, timeout);
-    if (proxy.host)
-        proxy_connect(buffer, sockfd, url, proxy);
+    if (strcmp(url.scheme, "https") != 0)
+        return proxysock;
 
-    int url_https = strcmp(url.scheme, "https") == 0;
-    FILE* sock = url_https ? fopentls(sockfd, url.host, cacerts, insecure) :
-                             fdopen(sockfd, "r+");
+    FILE* sock = wrap_tls(proxysock, url.host, cacerts, insecure);
     if (sock == NULL)
-        sfail(url_https ? "error: fopentls failed" : "error: fdopen failed");
+        fail("error: wrap_tls failed", EFAIL);
     return sock;
 }
 
@@ -444,13 +458,20 @@ static int get(URL url, URL proxy, char* auth, char* method, char** headers,
         char* body, int dump, int ignore, char* dest, int update, char* cacerts,
         int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
-    FILE* sock = opensock(buffer, url, proxy, cacerts, insecure, timeout);
+    FILE* proxysock = proxy.host ? opensock(proxy, cacerts, 0, timeout) : NULL;
+    FILE* sock = proxy.host ?
+        proxy_connect(buffer, proxysock, url, proxy, cacerts, insecure) :
+        opensock(url, cacerts, insecure, timeout);
+
     URL noproxy = (URL){0};  // using a CONNECT proxy instead
     request(buffer, sock, url, noproxy, auth, method, headers, body, dest,
             update);
     int status_code = handle_response(buffer, sock, url, dest, method,
                                       dump, ignore, bar);
     fclose(sock);
+    if (proxysock && proxysock != sock)
+        fclose(proxysock);
+
     if (!ignore && status_code / 100 == 3 && status_code != 304) {
         if (redirects >= 20)
             fail("error: too many redirects", EFAIL);
@@ -568,7 +589,7 @@ int main(int argc, char *argv[]) {
             fail("Usage: hget [options] <url>\n"
             "Options:\n"
             "  -o <path>       write output to the specified file or directory\n"
-            "  -p <url>        use HTTP proxy\n"
+            "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
             "  -t <seconds>    set connection timeout\n"
             "  -u              only download if server file is newer\n"
             "  -q              disable progress bar\n"
