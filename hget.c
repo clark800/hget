@@ -161,10 +161,10 @@ static URL parse_url(char* str) {
     return url;
 }
 
-static int conn(int https, char* host, char* port, int timeout) {
+static int conn(char* scheme, char* host, char* port, int timeout) {
     alarm(timeout);
     if (!port || port[0] == 0)
-        port = https ? "443" : "80";
+        port = strcmp(scheme, "https") == 0 ? "443" : "80";
     struct addrinfo *server, hints = {.ai_socktype = SOCK_STREAM};
     if (getaddrinfo(host, port, &hints, &server) != 0)
         sfail("getaddrinfo failed");
@@ -186,7 +186,7 @@ static int conn(int https, char* host, char* port, int timeout) {
 static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
     size_t m = strlen(auth);
     size_t n = snprintf(buffer, N, "%s: Basic ", name);
-    if (4 * ((m + 2) / 3) >= (n < N ? N - n : 0))
+    if (4 * ((m + 2) / 3) + 2 > (n < N ? N - n : 0))
         fail("error: auth string too long", EFAIL);
     n += base64encode(auth, m, buffer + n);
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
@@ -236,7 +236,7 @@ static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
                 "Content-Length: %zu\r\n", strlen(body));
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
 
-    if (n >= N)
+    if (n >= N)  // equal is a failure because of null terminator
         fail("error: request too large", EFAIL);
 
     if (body && strlen(body) < (n < N ? N - n : 0)) {
@@ -301,6 +301,9 @@ static size_t read_head(FILE* sock, char* buf, size_t len) {
     for (n = 0; n < len && fgets(buf + n, len - n, sock); n += strlen(buf + n))
         if (strcmp(buf + n, "\r\n") == 0)
             return n + 2;
+    if (n >= len)
+        fail("error: response header too long", EFAIL);
+    fail("error: invalid response header", EFAIL);
     return 0;
 }
 
@@ -370,8 +373,6 @@ static void print_status_line(char* response) {
 static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
         char* method, int dump, int ignore, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
-    if (headlen == 0)
-        fail("error: response headers too long", EFAIL);
     int status_code = parse_status_line(buffer);
     if (ignore || status_code / 100 == 2) {
         FILE* out = open_file(dest, url);
@@ -391,14 +392,55 @@ static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
     return status_code;
 }
 
-static FILE* opensock(URL server, char* cacerts, int insecure, int timeout) {
-    (void)cacerts, (void)insecure; // prevent unused warning for non-https build
-    int https = strcmp(server.scheme, "https") == 0;
-    int sockfd = conn(https, server.host, server.port, timeout);
-    FILE* sock = https ? fopentls(sockfd, server.host, cacerts, insecure) :
-        fdopen(sockfd, "r+");
+static void send_proxy_connect(char* buffer, FILE* sock, URL url, URL proxy) {
+    size_t n = 0, N = BUFSIZE;
+    int url_https = strcmp(url.scheme, "https") == 0;
+    char* port = url.port[0] ? url.port : (url_https ? "443" : "80");
+    n += snprintf(buffer, N, "CONNECT %s:%s HTTP/1.1\r\n", url.host, port);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s:%s\r\n",
+            url.host, port);
+    if (proxy.userinfo[0])
+        n += write_auth(buffer + n, n < N ? N - n : 0, "Proxy-Authorization",
+                proxy.userinfo);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
+    if (n >= N)  // equal is a failure because of null terminator
+        fail("error: proxy connect request too long", EFAIL);
+    swrite(sock, buffer);
+}
+
+static void proxy_connect(char* buffer, int sockfd, URL url, URL proxy) {
+    if (strcmp(proxy.scheme, "https") == 0)
+        fail("error: https proxy not implemented", EUSAGE);
+
+    FILE* sock = fdopen(dup(sockfd), "r+");
     if (sock == NULL)
-        sfail(https ? "start TLS failed" : "fdopen failed");
+        sfail("error: fdopen failed");
+
+    send_proxy_connect(buffer, sock, url, proxy);
+    read_head(sock, buffer, BUFSIZE);
+    fclose(sock);
+
+    int status_code = parse_status_line(buffer);
+    if (status_code != 200) {
+        fprintf(stderr, "proxy: ");
+        print_status_line(buffer);
+        exit(EFAIL);
+    }
+}
+
+static FILE* opensock(char* buffer, URL url, URL proxy, char* cacerts,
+        int insecure, int timeout) {
+    (void)cacerts, (void)insecure; // prevent unused warning for non-https build
+    URL server = proxy.host ? proxy : url;
+    int sockfd = conn(server.scheme, server.host, server.port, timeout);
+    if (proxy.host)
+        proxy_connect(buffer, sockfd, url, proxy);
+
+    int url_https = strcmp(url.scheme, "https") == 0;
+    FILE* sock = url_https ? fopentls(sockfd, url.host, cacerts, insecure) :
+                             fdopen(sockfd, "r+");
+    if (sock == NULL)
+        sfail(url_https ? "error: fopentls failed" : "error: fdopen failed");
     return sock;
 }
 
@@ -406,8 +448,10 @@ static int get(URL url, URL proxy, char* auth, char* method, char** headers,
         char* body, int dump, int ignore, char* dest, int update, char* cacerts,
         int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
-    FILE* sock = opensock(proxy.host ? proxy : url, cacerts, insecure, timeout);
-    request(buffer, sock, url, proxy, auth, method, headers, body, dest, update);
+    FILE* sock = opensock(buffer, url, proxy, cacerts, insecure, timeout);
+    URL noproxy = (URL){0};  // using a CONNECT proxy instead
+    request(buffer, sock, url, noproxy, auth, method, headers, body, dest,
+            update);
     int status_code = handle_response(buffer, sock, url, dest, method,
                                       dump, ignore, bar);
     fclose(sock);
@@ -527,7 +571,7 @@ int main(int argc, char *argv[]) {
             fail("Usage: hget [options] <url>\n"
             "Options:\n"
             "  -o <path>       write output to the specified file or directory\n"
-            "  -p <url>        use HTTP/HTTPS proxy\n"
+            "  -p <url>        use HTTP proxy\n"
             "  -t <seconds>    set connection timeout\n"
             "  -u              only download if server file is newer\n"
             "  -q              disable progress bar\n"
