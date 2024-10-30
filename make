@@ -27,10 +27,10 @@ case "$1" in
 esac
 
 if [ "$TLS" = 1 ]; then
-    CPPFLAGS+=" -D TLS"
+    CPPFLAGS="$CPPFLAGS -D TLS"
     if ! have stdio fopencookie; then
-        CPPFLAGS+=" -D NEED_FOPENCOOKIE"
-        SOURCES+=" shim.c"
+        CPPFLAGS="$CPPFLAGS -D NEED_FOPENCOOKIE"
+        SOURCES="$SOURCES shim.c"
     fi
 fi
 
