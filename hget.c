@@ -19,10 +19,6 @@ typedef struct {
     char *scheme, *userinfo, *host, *port, *path, *query, *fragment;
 } URL;
 
-static int get(URL url, URL proxy, char* auth, char* method, char** headers,
-        char* body, int dump, int ignore, char* dest, int update, char* cacerts,
-        int insecure, int timeout, FILE* bar, int redirects);
-
 static size_t min(size_t a, size_t b) {
     return a < b ? a : b;
 }
