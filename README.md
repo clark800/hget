@@ -15,7 +15,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 * Options to set the request method, headers, body, and basic auth.
 
 #### Size
-* Under 700 lines of code (0.5% the size of curl at ~134,000 lines)
+* About 700 lines of code (0.5% the size of curl at ~134,000 lines)
 
 #### Portability
 * Should be portable to any POSIX-like system that has either
@@ -29,7 +29,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -p <url>        use HTTP/HTTPS tunneling proxy
       -r <url>        use HTTP/HTTPS relay proxy (insecure for https)
       -t <seconds>    set connection timeout
-      -u              only download if server file is newer
+      -u              only download if server file is newer than local file
       -q              disable progress bar
       -f              force https connection even if it is insecure
       -d              dump full response including headers

@@ -13,6 +13,23 @@
 #include <sys/wait.h>
 #include "tls.h"
 
+const char* USAGE = "Usage: hget [options] <url>\n"
+"Options:\n"
+"  -o <path>       write output to the specified file or directory\n"
+"  -p <url>        use HTTP/HTTPS tunneling proxy\n"
+"  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
+"  -t <seconds>    set connection timeout\n"
+"  -u              only download if server file is newer than local file\n"
+"  -q              disable progress bar\n"
+"  -f              force https connection even if it is insecure\n"
+"  -d              dump full response including headers\n"
+"  -i              ignore response status; always output response\n"
+"  -a <user:pass>  add http basic authentication header\n"
+"  -m <method>     set the http request method\n"
+"  -h <header>     add a header to the request (may be repeated)\n"
+"  -b <body>       set the body of the request\n"
+"  -c <path>       use the specified CA cert file or directory\n";
+
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
 typedef struct {
@@ -515,6 +532,12 @@ static FILE* open_pipe(char* command, char* arg) {
     return file;
 }
 
+static void usage(int status, int full, int wget) {
+    fputs(wget ? "Usage: wget [-q] [-O <path>] <url>\n" :
+         (full ? USAGE : "Usage: hget [options] <url>\n"), stderr);
+    exit(status);
+}
+
 int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
     int ignore = 0, timeout = 0, relay = 0;
@@ -578,32 +601,14 @@ int main(int argc, char *argv[]) {
                 quiet = 1;
                 break;
             default:
+                if (optopt == 'h')  // treat this like "help"
+                    usage(0, 1, wget);
                 exit(EUSAGE);
         }
     }
 
-    if (optind != argc - 1) {
-        if (wget)
-            fail("Usage: wget [-q] [-O <path>] <url>", EUSAGE);
-        else
-            fail("Usage: hget [options] <url>\n"
-            "Options:\n"
-            "  -o <path>       write output to the specified file or directory\n"
-            "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
-            "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
-            "  -t <seconds>    set connection timeout\n"
-            "  -u              only download if server file is newer\n"
-            "  -q              disable progress bar\n"
-            "  -f              force https connection even if it is insecure\n"
-            "  -d              dump full response including headers\n"
-            "  -i              ignore response status; always output response\n"
-            "  -a <user:pass>  add http basic authentication header\n"
-            "  -m <method>     set the http request method\n"
-            "  -h <header>     add a header to the request (may be repeated)\n"
-            "  -b <body>       set the body of the request\n"
-            "  -c <path>       use the specified CA cert file or directory"
-            , EUSAGE);
-    }
+    if (optind != argc - 1)
+        usage(argc == 1 ? 0 : EUSAGE, argc == 1, wget);
 
     if (is_stdout(dest) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
