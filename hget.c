@@ -601,7 +601,7 @@ int main(int argc, char *argv[]) {
                 quiet = 1;
                 break;
             default:
-                if (optopt == 'h')  // treat this like "help"
+                if (argc == 2 && optopt == 'h')  // treat this like "help"
                     usage(0, 1, wget);
                 exit(EUSAGE);
         }
