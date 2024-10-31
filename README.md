@@ -47,7 +47,8 @@ To show a progress bar, install a progress bar utility like
 variable to the name of the utility.
 
 To use a CA certificate directory, make sure each certificate in the directory
-is in a separate file (not bundled) and run `c_rehash` on the direcory.
+is in a separate file (not bundled) and run `c_rehash` on the direcory. Note
+that CA directories are not supported in bearssl builds.
 
 # Building
 
