@@ -5,16 +5,17 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 <1% as much code.
 
 #### Features
-* Download progress can be sent to an external progress bar utility.
+* Support for tunnel and relay mode HTTP/HTTPS proxies
 * Automatically follows HTTP 3xx redirects.
+* Download progress can be sent to an external progress bar utility.
 * If the destination file exists and the `-u` option is specified,
   the file will only be downloaded if the modification time on the server is
   more recent than the modification time of the local file
   (using the If-Modified-Since header).
-* Exit status codes are more helpful than curl defaults.
+* Options to set the request method, headers, body, and basic auth.
 
 #### Size
-* About 600 lines of code (<0.5% the size of curl at ~134,000 lines)
+* Under 700 lines of code (0.5% the size of curl at ~134,000 lines)
 
 #### Portability
 * Should be portable to any POSIX-like system that has either
@@ -26,6 +27,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
     Options:
       -o <path>       write output to the specified file or directory
       -p <url>        use HTTP/HTTPS tunneling proxy
+      -r <url>        use HTTP/HTTPS relay proxy (insecure for https)
       -t <seconds>    set connection timeout
       -u              only download if server file is newer
       -q              disable progress bar

@@ -454,18 +454,18 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
     return sock;
 }
 
-static int get(URL url, URL proxy, char* auth, char* method, char** headers,
-        char* body, int dump, int ignore, char* dest, int update, char* cacerts,
-        int insecure, int timeout, FILE* bar, int redirects) {
+static int get(URL url, URL proxy, int relay, char* auth, char* method,
+        char** headers, char* body, int dump, int ignore, char* dest,
+        int update, char* cacerts, int insecure, int timeout, FILE* bar,
+        int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ? opensock(proxy, cacerts, 0, timeout) : NULL;
-    FILE* sock = proxy.host ?
-        proxy_connect(buffer, proxysock, url, proxy, cacerts, insecure) :
+    FILE* sock = proxy.host ? (relay ? proxysock :
+        proxy_connect(buffer, proxysock, url, proxy, cacerts, insecure)) :
         opensock(url, cacerts, insecure, timeout);
 
-    URL noproxy = (URL){0};  // using a CONNECT proxy instead
-    request(buffer, sock, url, noproxy, auth, method, headers, body, dest,
-            update);
+    request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
+            body, dest, update);
     int status_code = handle_response(buffer, sock, url, dest, method,
                                       dump, ignore, bar);
     fclose(sock);
@@ -478,7 +478,7 @@ static int get(URL url, URL proxy, char* auth, char* method, char** headers,
         char* location = get_header(buffer, "Location:");
         if (location == NULL)
             fail("error: redirect missing location", EFAIL);
-        return get(parse_url(location), proxy, auth, status_code == 303 ?
+        return get(parse_url(location), proxy, relay, auth, status_code == 303 ?
                 "GET" : method, headers, body, dump, ignore, dest, update,
                 cacerts, insecure, timeout, bar, redirects + 1);
     }
@@ -517,7 +517,7 @@ static FILE* open_pipe(char* command, char* arg) {
 
 int main(int argc, char *argv[]) {
     int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
-    int ignore = 0, timeout = 0;
+    int ignore = 0, timeout = 0, relay = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
     char* proxyurl = NULL;
@@ -526,7 +526,7 @@ int main(int argc, char *argv[]) {
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:p:t:a:c:m:h:b:dfqui";
+    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:dfqui";
 
     if (getenv("CA_BUNDLE"))
         cacerts = getenv("CA_BUNDLE");
@@ -540,6 +540,11 @@ int main(int argc, char *argv[]) {
                 break;
             case 'p':
                 proxyurl = optarg;
+                relay = 0;
+                break;
+            case 'r':
+                proxyurl = optarg;
+                relay = 1;
                 break;
             case 'f':
                 insecure = 1;
@@ -590,6 +595,7 @@ int main(int argc, char *argv[]) {
             "Options:\n"
             "  -o <path>       write output to the specified file or directory\n"
             "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
+            "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
             "  -t <seconds>    set connection timeout\n"
             "  -u              only download if server file is newer\n"
             "  -q              disable progress bar\n"
@@ -621,8 +627,8 @@ int main(int argc, char *argv[]) {
         signal(SIGALRM, timeout_fail);
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status_code = get(url, proxy, auth, method, headers, body, dump, ignore,
-                          dest, update, cacerts, insecure, timeout, bar, 0);
+    int status_code = get(url, proxy, relay, auth, method, headers, body, dump,
+                    ignore, dest, update, cacerts, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
