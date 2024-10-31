@@ -1,9 +1,20 @@
 #define _GNU_SOURCE   // sometimes needed for fopencookie (e.g. musl)
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <tls.h>
 #include "shim.h"
 #include "tls.h"
+
+static int isdir(const char* path) {
+    // "If the named file is a symbolic link, the stat() function shall
+    // continue pathname resolution using the contents of the symbolic link,
+    // and shall return information pertaining to the resulting file if the
+    // file exists."
+    // (https://pubs.opengroup.org/onlinepubs/000095399/functions/stat.html)
+    struct stat sb;
+    return path != NULL && stat(path, &sb) == 0 && S_ISDIR(sb.st_mode);
+}
 
 static void fail(const char* message, struct tls* tls) {
     fputs(message, stderr);
@@ -46,6 +57,9 @@ static struct tls* new_tls_client(const char* cacerts, int insecure) {
         tls_config_insecure_noverifycert(tls_config);
         tls_config_insecure_noverifyname(tls_config);
         tls_config_insecure_noverifytime(tls_config);
+    } else if (isdir(cacerts)) {
+        if (tls_config_set_ca_path(tls_config, cacerts) != 0)
+            fail("failed to set CA directory", NULL);
     } else if (tls_config_set_ca_file(tls_config, cacerts) != 0) {
         fail("failed to load CA bundle", NULL);
     }

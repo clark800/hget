@@ -601,7 +601,7 @@ int main(int argc, char *argv[]) {
             "  -m <method>     set the http request method\n"
             "  -h <header>     add a header to the request (may be repeated)\n"
             "  -b <body>       set the body of the request\n"
-            "  -c <path>       use the specified CA certificates file"
+            "  -c <path>       use the specified CA cert file or directory"
             , EUSAGE);
     }
 

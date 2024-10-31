@@ -38,7 +38,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
       -b <body>       set the body of the request
-      -c <path>       use the specified CA certificates file
+      -c <path>       use the specified CA cert file or directory
 
 To download a file to the current directory, use `hget -o. <url>`.
 
@@ -46,6 +46,8 @@ To show a progress bar, install a progress bar utility like
 [bar](https://github.com/clark800/bar) and set the `PROGRESS` environment
 variable to the name of the utility.
 
+To use a CA certificate directory, make sure each certificate in the directory
+is in a separate file (not bundled) and run `c_rehash` on the direcory.
 
 # Building
 
