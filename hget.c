@@ -22,8 +22,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -u              only download if server file is newer than local file\n"
 "  -q              disable progress bar\n"
 "  -f              force https connection even if it is insecure\n"
-"  -d              dump full response including headers\n"
-"  -i              ignore response status; always output response\n"
+"  -x              output explicit response; ignore response status\n"
 "  -a <user:pass>  add http basic authentication header\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
@@ -401,12 +400,12 @@ static void print_status_line(char* response) {
 }
 
 static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
-        char* method, int dump, int ignore, FILE* bar) {
+        char* method, int explicit, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     int status_code = parse_status_line(buffer);
-    if (ignore || status_code / 100 == 2) {
+    if (explicit || status_code / 100 == 2) {
         FILE* out = open_file(dest, url);
-        if (dump)
+        if (explicit)
             write_out(out, buffer, headlen);
         if (strcmp(method, "HEAD") != 0) {
             if (is_chunked(buffer))
@@ -472,9 +471,8 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 }
 
 static int get(URL url, URL proxy, int relay, char* auth, char* method,
-        char** headers, char* body, int dump, int ignore, char* dest,
-        int update, char* cacerts, int insecure, int timeout, FILE* bar,
-        int redirects) {
+        char** headers, char* body, char* dest, int explicit, int update,
+        char* cacerts, int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ? opensock(proxy, cacerts, 0, timeout) : NULL;
     FILE* sock = proxy.host ? (relay ? proxysock :
@@ -484,19 +482,19 @@ static int get(URL url, URL proxy, int relay, char* auth, char* method,
     request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
             body, dest, update);
     int status_code = handle_response(buffer, sock, url, dest, method,
-                                      dump, ignore, bar);
+                                      explicit, bar);
     fclose(sock);
     if (proxysock && proxysock != sock)
         fclose(proxysock);
 
-    if (!ignore && status_code / 100 == 3 && status_code != 304) {
+    if (!explicit && status_code / 100 == 3 && status_code != 304) {
         if (redirects >= 20)
             fail("error: too many redirects", EFAIL);
         char* location = get_header(buffer, "Location:");
         if (location == NULL)
             fail("error: redirect missing location", EFAIL);
         return get(parse_url(location), proxy, relay, auth, status_code == 303 ?
-                "GET" : method, headers, body, dump, ignore, dest, update,
+                "GET" : method, headers, body, dest, explicit, update,
                 cacerts, insecure, timeout, bar, redirects + 1);
     }
     return status_code;
@@ -539,8 +537,8 @@ static void usage(int status, int full, int wget) {
 }
 
 int main(int argc, char *argv[]) {
-    int opt = 0, quiet = 0, dump = 0, update = 0, insecure = 0, nheaders = 0;
-    int ignore = 0, timeout = 0, relay = 0;
+    int opt = 0, quiet = 0, explicit = 0, update = 0, insecure = 0;
+    int timeout = 0, relay = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char* dest = wget ? "." : NULL;
     char* proxyurl = NULL;
@@ -549,13 +547,10 @@ int main(int argc, char *argv[]) {
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:dfqui";
+    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:fqux";
 
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
-            case 'd':
-                dump = 1;
-                break;
             case 'p':
                 proxyurl = optarg;
                 relay = 0;
@@ -579,8 +574,8 @@ int main(int argc, char *argv[]) {
             case 'u':
                 update = 1;
                 break;
-            case 'i':
-                ignore = 1;
+            case 'x':
+                explicit = 1;
                 break;
             case 'b':
                 body = optarg;
@@ -652,15 +647,15 @@ int main(int argc, char *argv[]) {
         signal(SIGALRM, timeout_fail);
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status_code = get(url, proxy, relay, auth, method, headers, body, dump,
-                    ignore, dest, update, cacerts, insecure, timeout, bar, 0);
+    int status_code = get(url, proxy, relay, auth, method, headers, body, dest,
+                          explicit, update, cacerts, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
         wait(NULL);  // wait for bar to finish drawing
     }
 
-    if (ignore || status_code / 100 == 2 || status_code == 304)
+    if (explicit || status_code / 100 == 2 || status_code == 304)
         return OK;
 
     if (status_code == 404 || status_code == 410)
