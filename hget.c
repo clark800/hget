@@ -19,7 +19,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
 "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
 "  -t <seconds>    set connection timeout\n"
-"  -u              only download if server file is newer than local file\n"
+"  -n              only download if server file is newer than local file\n"
 "  -q              disable progress bar\n"
 "  -f              force https connection even if it is insecure\n"
 "  -x              output explicit response; ignore response status\n"
@@ -547,7 +547,7 @@ int main(int argc, char *argv[]) {
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:fqux";
+    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:fqnx";
 
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
@@ -571,7 +571,7 @@ int main(int argc, char *argv[]) {
             case 'c':
                 cacerts = optarg;
                 break;
-            case 'u':
+            case 'n':
                 update = 1;
                 break;
             case 'x':
