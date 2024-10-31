@@ -522,16 +522,11 @@ int main(int argc, char *argv[]) {
     char* dest = wget ? "." : NULL;
     char* proxyurl = NULL;
     char* auth = NULL;
-    char* cacerts = CA_BUNDLE;
+    char* cacerts = NULL;
     char* method = "GET";
     char* headers[32] = {0};
     char* body = NULL;
     const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:dfqui";
-
-    if (getenv("CA_BUNDLE"))
-        cacerts = getenv("CA_BUNDLE");
-    if (getenv("HGET_CA_BUNDLE"))
-        cacerts = getenv("HGET_CA_BUNDLE");
 
     while ((opt = getopt(argc, argv, opts)) != -1) {
         switch (opt) {
@@ -615,7 +610,32 @@ int main(int argc, char *argv[]) {
 
     char* arg = argv[optind++];
     URL url = parse_url(arg);
-    URL proxy = proxyurl ? parse_url(proxyurl) : (URL){0};
+
+    if (!proxyurl)
+        proxyurl = getenv("HGET_PROXY");
+    if (!proxyurl) {
+        if (strcmp(url.scheme, "https") == 0) {
+            proxyurl = getenv("HTTPS_PROXY");
+            if (!proxyurl)
+                proxyurl = getenv("https_proxy");
+        } else {
+            proxyurl = getenv("HTTP_PROXY");
+            if (!proxyurl)
+                proxyurl = getenv("http_proxy");
+        }
+    }
+
+    // modifying getenv strings is undefined behavior (ISO C99 7.20.4.5)
+    char proxybuf[proxyurl ? strlen(proxyurl) + 1 : 1];
+    strcpy(proxybuf, proxyurl ? proxyurl : "");
+    URL proxy = proxyurl ? parse_url(proxybuf) : (URL){0};
+
+    if (!cacerts)
+        cacerts = getenv("HGET_CA_BUNDLE");
+    if (!cacerts)
+        cacerts = getenv("CA_BUNDLE");
+    if (!cacerts)
+        cacerts = CA_BUNDLE;
 
     if (!auth && url.userinfo[0])
         auth = url.userinfo;  // so auth will apply to redirects
