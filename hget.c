@@ -27,6 +27,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
 "  -b <body>       set the body of the request\n"
+"  -u <path>       upload file as request body\n"
 "  -c <path>       use the specified CA cert file or directory\n";
 
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
@@ -106,6 +107,15 @@ static void swrite(FILE* sock, const char* buf) {
     size_t size = strlen(buf);
     if (fwrite(buf, 1, size, sock) < size)
         sfail("send failed");
+}
+
+static void swritefile(FILE* sock, const char* path, char* buf) {
+    FILE* file = fopen(path, "r");
+    if (!file)
+        sfail("failed to open upload file");
+    for (size_t n = 0; (n = fread(buf, 1, BUFSIZE, file)) > 0;)
+        if (fwrite(buf, 1, n, sock) != n)
+            fail("send failed", EFAIL);
 }
 
 static size_t write_out(FILE* out, char* buf, size_t len) {
@@ -222,8 +232,18 @@ static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
     return n;
 }
 
+static size_t get_content_length(char* body, char* upload) {
+    if (body || !upload)
+        return body ? strlen(body) : 0;
+    struct stat sb;
+    if (stat(upload, &sb) != 0)
+        fail("error: failed to stat upload file", EFAIL);
+    return sb.st_size;
+}
+
 static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
-        char* method, char** headers, char* body, char* dest, int update) {
+        char* method, char** headers, char* body, char* upload, char* dest,
+        int update) {
     struct stat sb;
     size_t n = 0, N = BUFSIZE;
 
@@ -260,9 +280,9 @@ static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     }
     while (*headers != NULL)
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s\r\n", *(headers++));
-    if (body)
+    if (body || upload)
         n += snprintf(buffer + n, n < N ? N - n : 0,
-                "Content-Length: %zu\r\n", strlen(body));
+                "Content-Length: %zu\r\n", get_content_length(body, upload));
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
 
     if (n >= N)  // equal is a failure because of null terminator
@@ -270,11 +290,13 @@ static void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
 
     if (body && strlen(body) < (n < N ? N - n : 0)) {
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s", body);
-        swrite(sock, buffer);
+        swrite(sock, buffer);  // write header and body
     } else {
-        swrite(sock, buffer);
+        swrite(sock, buffer);  // write header
         if (body)
             swrite(sock, body);
+        else if (upload)
+            swritefile(sock, upload, buffer);
     }
 }
 
@@ -471,8 +493,9 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 }
 
 static int get(URL url, URL proxy, int relay, char* auth, char* method,
-        char** headers, char* body, char* dest, int explicit, int update,
-        char* cacerts, int insecure, int timeout, FILE* bar, int redirects) {
+        char** headers, char* body, char* upload, char* dest, int explicit,
+        int update, char* cacerts, int insecure, int timeout, FILE* bar,
+        int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ? opensock(proxy, cacerts, 0, timeout) : NULL;
     FILE* sock = proxy.host ? (relay ? proxysock :
@@ -480,7 +503,7 @@ static int get(URL url, URL proxy, int relay, char* auth, char* method,
         opensock(url, cacerts, insecure, timeout);
 
     request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
-            body, dest, update);
+            body, upload, dest, update);
     int status_code = handle_response(buffer, sock, url, dest, method,
                                       explicit, bar);
     fclose(sock);
@@ -494,7 +517,7 @@ static int get(URL url, URL proxy, int relay, char* auth, char* method,
         if (location == NULL)
             fail("error: redirect missing location", EFAIL);
         return get(parse_url(location), proxy, relay, auth, status_code == 303 ?
-                "GET" : method, headers, body, dest, explicit, update,
+                "GET" : method, headers, body, upload, dest, explicit, update,
                 cacerts, insecure, timeout, bar, redirects + 1);
     }
     return status_code;
@@ -537,19 +560,15 @@ static void usage(int status, int full, int wget) {
 }
 
 int main(int argc, char *argv[]) {
-    int opt = 0, quiet = 0, explicit = 0, update = 0, insecure = 0;
-    int timeout = 0, relay = 0, nheaders = 0;
+    int quiet = 0, explicit = 0, update = 0, insecure = 0, timeout = 0;
+    int relay = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
-    char* dest = wget ? "." : NULL;
-    char* proxyurl = NULL;
-    char* auth = NULL;
-    char* cacerts = NULL;
-    char* method = "GET";
+    char *dest = wget ? "." : NULL, *upload = NULL, *proxyurl = NULL,
+         *auth = NULL, *cacerts = NULL, *method = "GET", *body = NULL;
     char* headers[32] = {0};
-    char* body = NULL;
-    const char* opts = wget ? "O:q" : "o:p:r:t:a:c:m:h:b:fqnx";
 
-    while ((opt = getopt(argc, argv, opts)) != -1) {
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:fqnx";
+    for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'p':
                 proxyurl = optarg;
@@ -592,6 +611,9 @@ int main(int argc, char *argv[]) {
             case 'O':
                 dest = optarg;
                 break;
+            case 'u':
+                upload = optarg;
+                break;
             case 'q':
                 quiet = 1;
                 break;
@@ -604,9 +626,6 @@ int main(int argc, char *argv[]) {
 
     if (optind != argc - 1)
         usage(argc == 1 ? 0 : EUSAGE, argc == 1, wget);
-
-    if (is_stdout(dest) && isatty(1))
-        quiet = 1;   // prevent mixing progress bar with output on stdout
 
     char* arg = argv[optind++];
     URL url = parse_url(arg);
@@ -643,12 +662,19 @@ int main(int argc, char *argv[]) {
     if (!is_stdout(dest) && isdir(dest) && chdir(dest) != 0)
         fail("error: directory is not accessible", EUSAGE);
 
+    if (body && upload)
+        fail("error: -b and -u options are exclusive", EUSAGE);
+
     if (timeout)
         signal(SIGALRM, timeout_fail);
 
+    if (is_stdout(dest) && isatty(1))
+        quiet = 1;   // prevent mixing progress bar with output on stdout
+
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
-    int status_code = get(url, proxy, relay, auth, method, headers, body, dest,
-                          explicit, update, cacerts, insecure, timeout, bar, 0);
+    int status_code = get(url, proxy, relay, auth, method, headers, body,
+                          upload, dest, explicit, update, cacerts, insecure,
+                          timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
@@ -657,7 +683,6 @@ int main(int argc, char *argv[]) {
 
     if (explicit || status_code / 100 == 2 || status_code == 304)
         return OK;
-
     if (status_code == 404 || status_code == 410)
         return ENOTFOUND;
     if (status_code / 100 == 4)

@@ -38,6 +38,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
       -b <body>       set the body of the request
+      -u <path>       upload file as request body
       -c <path>       use the specified CA cert file or directory
 
 To download a file to the current directory, use `hget -o. <url>`.
