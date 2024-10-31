@@ -660,10 +660,13 @@ int main(int argc, char *argv[]) {
         auth = url.userinfo;  // so auth will apply to redirects
 
     if (!is_stdout(dest) && isdir(dest) && chdir(dest) != 0)
-        fail("error: directory is not accessible", EUSAGE);
+        fail("error: output directory is not accessible", EUSAGE);
 
     if (body && upload)
         fail("error: -b and -u options are exclusive", EUSAGE);
+
+    if (upload && isdir(upload))
+        fail("error: upload cannot be a directory", EUSAGE);
 
     if (timeout)
         signal(SIGALRM, timeout_fail);
