@@ -21,8 +21,8 @@ case "$1" in
     bearssl) TLS=1; LIBS="-lbearssl";;
     libressl) TLS=1;;
     brew) TLS=1
-        LDFLAGS="-L/opt/homebrew/opt/libretls/lib"
-        CPPFLAGS="-I/opt/homebrew/opt/libretls/include"
+        LDFLAGS="-L/opt/homebrew/opt/libressl/lib"
+        CPPFLAGS="-I/opt/homebrew/opt/libressl/include"
         CA_BUNDLE="/opt/homebrew/etc/ca-certificates/cert.pem";;
     sloc) gcc -fpreprocessed -dD -E -P *.c *.h | wc -l; exit 0;;
     clean) rm -f hget; exit 0;;
