@@ -26,19 +26,18 @@ hget is designed to provide 99% of the value-weighted utility of curl in
     Usage: hget [options] <url>
     Options:
       -o <path>       write output to the specified file or directory
+      -n              only download if server file is newer than local file
+      -q              disable progress bar
       -p <url>        use HTTP/HTTPS tunneling proxy
       -r <url>        use HTTP/HTTPS relay proxy (insecure for https)
       -t <seconds>    set connection timeout
-      -u              only download if server file is newer than local file
-      -q              disable progress bar
-      -f              force https connection even if it is insecure
-      -d              dump full response including headers
-      -i              ignore response status; always output response
-      -a <user:pass>  add http basic authentication header
+      -x              output explicit response; ignore response status
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
+      -a <user:pass>  add http basic authentication header
       -b <body>       set the body of the request
       -u <path>       upload file as request body
+      -f              force https connection even if it is insecure
       -c <path>       use the specified CA cert file or directory
       -i <path>       set the client identity certificate
       -k <path>       set the client private key
