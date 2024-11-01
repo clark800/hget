@@ -14,7 +14,7 @@ have() {
 }
 
 LIBS=""
-SOURCES="util.c request.c interact.c hget.c"
+SOURCES="util.c request.c response.c interact.c hget.c"
 
 case "$1" in
     '') : ;;
