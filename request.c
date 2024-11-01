@@ -1,34 +1,10 @@
 #define _POSIX_C_SOURCE 200112L
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 #include <sys/stat.h>
+#include "util.h"
 #include "request.h"
-
-static int EFAIL = 1;
-
-void* fail(const char* message, int status) {
-    fprintf(stderr, "%s\n", message);
-    exit(status);
-    return NULL;
-}
-
-void sfail(const char* message) {
-    perror(message);
-    exit(EFAIL);
-}
-
-int is_stdout(char* dest) {
-    // "-" is interpreted as stdout for compatibility with wget
-    return dest == NULL || strcmp(dest, "-") == 0;
-}
-
-void swrite(FILE* sock, const char* buf) {
-    size_t size = strlen(buf);
-    if (fwrite(buf, 1, size, sock) < size)
-        sfail("send failed");
-}
 
 static void swritefile(FILE* sock, const char* path, char* buf) {
     FILE* file = fopen(path, "r");
@@ -49,7 +25,6 @@ static size_t base64encode(const char* in, size_t n, char* out) {
     out[4 * ((n + 2) / 3)] = 0;
     return 4 * ((n + 2) / 3);
 }
-
 
 static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
     size_t m = strlen(auth);
