@@ -14,7 +14,7 @@ have() {
 }
 
 LIBS=""
-SOURCES="util.c request.c response.c interact.c hget.c"
+SOURCES="src/util.c src/request.c src/response.c src/interact.c src/hget.c"
 
 case "$1" in
     '') : ;;
@@ -30,12 +30,12 @@ case "$1" in
 esac
 
 if [ "$TLS" = 1 ]; then
-    SOURCES="tls.c $SOURCES"
+    SOURCES="src/tls.c $SOURCES"
     LIBS="-ltls $LIBS"
     CPPFLAGS="$CPPFLAGS -D TLS"
     if ! have stdio fopencookie; then
         CPPFLAGS="$CPPFLAGS -D NEED_FOPENCOOKIE"
-        SOURCES="$SOURCES shim.c"
+        SOURCES="src/shim.c $SOURCES"
     fi
 fi
 
