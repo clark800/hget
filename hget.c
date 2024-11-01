@@ -28,7 +28,9 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
 "  -b <body>       set the body of the request\n"
 "  -u <path>       upload file as request body\n"
-"  -c <path>       use the specified CA cert file or directory\n";
+"  -c <path>       use the specified CA cert file or directory\n"
+"  -i <path>       set the client identity certificate\n"
+"  -k <path>       set the client private key\n";
 
 enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
 
@@ -443,12 +445,14 @@ static int handle_response(char* buffer, FILE* sock, URL url, char* dest,
     return status_code;
 }
 
-static FILE* opensock(URL server, char* cacerts, int insecure, int timeout) {
+static FILE* opensock(URL server, char* cacerts, char* cert, char* key,
+        int insecure, int timeout) {
     (void)cacerts, (void)insecure; // prevent unused warning for non-https build
     int sockfd = conn(server.scheme, server.host, server.port, timeout);
     int https = strcmp(server.scheme, "https") == 0;
-    FILE* sock = https ? start_tls(sockfd, server.host, cacerts, insecure) :
-                         fdopen(sockfd, "r+");
+    FILE* sock = https ?
+        start_tls(sockfd, server.host, cacerts, cert, key, insecure) :
+        fdopen(sockfd, "r+");
     if (sock == NULL)
         sfail(https ? "error: start_tls failed" : "error: fdopen failed");
     return sock;
@@ -471,7 +475,7 @@ static void send_proxy_connect(char* buffer, FILE* sock, URL url, URL proxy) {
 }
 
 static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
-        char* cacerts, int insecure) {
+        char* cacerts, char* cert, char* key, int insecure) {
     (void)cacerts, (void)insecure;
     send_proxy_connect(buffer, proxysock, url, proxy);
     read_head(proxysock, buffer, BUFSIZE);
@@ -486,7 +490,7 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
     if (strcmp(url.scheme, "https") != 0)
         return proxysock;
 
-    FILE* sock = wrap_tls(proxysock, url.host, cacerts, insecure);
+    FILE* sock = wrap_tls(proxysock, url.host, cacerts, cert, key, insecure);
     if (sock == NULL)
         fail("error: wrap_tls failed", EFAIL);
     return sock;
@@ -494,13 +498,14 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 
 static int get(URL url, URL proxy, int relay, char* auth, char* method,
         char** headers, char* body, char* upload, char* dest, int explicit,
-        int update, char* cacerts, int insecure, int timeout, FILE* bar,
-        int redirects) {
+        int update, char* cacerts, char* cert, char* key, int insecure,
+        int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
-    FILE* proxysock = proxy.host ? opensock(proxy, cacerts, 0, timeout) : NULL;
-    FILE* sock = proxy.host ? (relay ? proxysock :
-        proxy_connect(buffer, proxysock, url, proxy, cacerts, insecure)) :
-        opensock(url, cacerts, insecure, timeout);
+    FILE* proxysock = proxy.host ?
+        opensock(proxy, cacerts, cert, key, 0, timeout) : NULL;
+    FILE* sock = proxy.host ? (relay ? proxysock : proxy_connect(buffer,
+                 proxysock, url, proxy, cacerts, cert, key, insecure)) :
+                 opensock(url, cacerts, cert, key, insecure, timeout);
 
     request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
             body, upload, dest, update);
@@ -518,7 +523,7 @@ static int get(URL url, URL proxy, int relay, char* auth, char* method,
             fail("error: redirect missing location", EFAIL);
         return get(parse_url(location), proxy, relay, auth, status_code == 303 ?
                 "GET" : method, headers, body, upload, dest, explicit, update,
-                cacerts, insecure, timeout, bar, redirects + 1);
+                cacerts, cert, key, insecure, timeout, bar, redirects + 1);
     }
     return status_code;
 }
@@ -564,10 +569,11 @@ int main(int argc, char *argv[]) {
     int relay = 0, nheaders = 0;
     int wget = strcmp(get_filename(argv[0]), "wget") == 0;
     char *dest = wget ? "." : NULL, *upload = NULL, *proxyurl = NULL,
-         *auth = NULL, *cacerts = NULL, *method = "GET", *body = NULL;
+         *auth = NULL, *cacerts = NULL, *cert = NULL, *key = NULL,
+         *method = "GET", *body = NULL;
     char* headers[32] = {0};
 
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:fqnx";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'p':
@@ -617,6 +623,12 @@ int main(int argc, char *argv[]) {
             case 'q':
                 quiet = 1;
                 break;
+            case 'i':
+                cert = optarg;
+                break;
+            case 'k':
+                key = optarg;
+                break;
             default:
                 if (argc == 2 && optopt == 'h')  // treat this like "help"
                     usage(0, 1, wget);
@@ -665,6 +677,9 @@ int main(int argc, char *argv[]) {
     if (body && upload)
         fail("error: -b and -u options are exclusive", EUSAGE);
 
+    if ((cert && !key) || (key && !cert))
+        fail("error: -i and -k options must be used together", EUSAGE);
+
     if (upload && isdir(upload))
         fail("error: upload cannot be a directory", EUSAGE);
 
@@ -676,8 +691,8 @@ int main(int argc, char *argv[]) {
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     int status_code = get(url, proxy, relay, auth, method, headers, body,
-                          upload, dest, explicit, update, cacerts, insecure,
-                          timeout, bar, 0);
+                          upload, dest, explicit, update, cacerts, cert, key,
+                          insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon

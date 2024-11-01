@@ -49,7 +49,8 @@ static ssize_t write_tls(void* tls, const char* buf, size_t len) {
     return n;
 }
 
-static struct tls* new_tls_client(const char* cacerts, int insecure) {
+static struct tls* new_tls_client(const char* cacerts, const char* cert,
+        const char* key, int insecure) {
     struct tls_config* tls_config = tls_config_new();
     if (!tls_config)
         fail("failed to create tls config", NULL);
@@ -63,6 +64,9 @@ static struct tls* new_tls_client(const char* cacerts, int insecure) {
     } else if (tls_config_set_ca_file(tls_config, cacerts) != 0) {
         fail("failed to load CA bundle", NULL);
     }
+    if (cert && key)
+        if (tls_config_set_keypair_file(tls_config, cert, key) != 0)
+            fail("failed to load client certificate and/or private key", NULL);
 
     struct tls* tls = tls_client();
     if (!tls)
@@ -97,15 +101,17 @@ static ssize_t writer(struct tls *tls, const void *buf, size_t n, void *sock) {
     return fwrite(buf, 1, n, sock);
 }
 
-FILE* wrap_tls(FILE* sock, const char* host, const char* cacerts, int insecure) {
-    struct tls* tls = new_tls_client(cacerts, insecure);
+FILE* wrap_tls(FILE* sock, const char* host, const char* cacerts,
+        const char* cert, const char* key, int insecure) {
+    struct tls* tls = new_tls_client(cacerts, cert, key, insecure);
     if (tls_connect_cbs(tls, reader, writer, sock, host) != 0)
         fail("tls_connect_cbs", tls);
     return fopentls(tls);
 }
 
-FILE* start_tls(int sock, const char* host, const char* cacerts, int insecure) {
-    struct tls* tls = new_tls_client(cacerts, insecure);
+FILE* start_tls(int sock, const char* host, const char* cacerts,
+        const char* cert, const char* key, int insecure) {
+    struct tls* tls = new_tls_client(cacerts, cert, key, insecure);
     if (tls_connect_socket(tls, sock, host) != 0)
         fail("tls_connect_socket", tls);
     return fopentls(tls);

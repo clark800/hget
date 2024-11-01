@@ -15,7 +15,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 * Options to set the request method, headers, body, and basic auth.
 
 #### Size
-* About 700 lines of code (0.5% the size of curl at ~134,000 lines)
+* About 750 lines of code (0.6% the size of curl at ~134,000 lines)
 
 #### Portability
 * Should be portable to any POSIX-like system that has either
@@ -40,6 +40,8 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -b <body>       set the body of the request
       -u <path>       upload file as request body
       -c <path>       use the specified CA cert file or directory
+      -i <path>       set the client identity certificate
+      -k <path>       set the client private key
 
 To download a file to the current directory, use `hget -o. <url>`.
 
