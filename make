@@ -13,11 +13,14 @@ have() {
     return "$result"
 }
 
+LIBS=""
+SOURCES="request.c hget.c"
+
 case "$1" in
-    '') SOURCES="hget.c"; LIBS="";;
-    bearssl) TLS=1; SOURCES="hget.c tls.c"; LIBS="-ltls -lbearssl";;
-    libressl) TLS=1; SOURCES="hget.c tls.c"; LIBS="-ltls";;
-    brew) TLS=1 SOURCES="hget.c tls.c"; LIBS="-ltls"
+    '') : ;;
+    bearssl) TLS=1; LIBS="-lbearssl";;
+    libressl) TLS=1;;
+    brew) TLS=1
         LDFLAGS="-L/opt/homebrew/opt/libretls/lib"
         CPPFLAGS="-I/opt/homebrew/opt/libretls/include"
         CA_BUNDLE="/opt/homebrew/etc/ca-certificates/cert.pem";;
@@ -27,6 +30,8 @@ case "$1" in
 esac
 
 if [ "$TLS" = 1 ]; then
+    SOURCES="tls.c $SOURCES"
+    LIBS="-ltls $LIBS"
     CPPFLAGS="$CPPFLAGS -D TLS"
     if ! have stdio fopencookie; then
         CPPFLAGS="$CPPFLAGS -D NEED_FOPENCOOKIE"
