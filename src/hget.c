@@ -17,7 +17,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
 "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
 "  -t <seconds>    set connection timeout\n"
-"  -x              output explicit response; ignore response status\n"
+"  -e              output explicit response; ignore response status\n"
 "  -d              output direct response (disable redirects)\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
@@ -79,7 +79,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnxd";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqned";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -91,7 +91,7 @@ static void parse_args(int argc, char* argv[]) {
             case 'a': auth = optarg; break;
             case 'c': cacerts = optarg; break;
             case 'n': update = 1; break;
-            case 'x': explicit = 1; break;
+            case 'e': explicit = 1; break;
             case 'd': direct = 1; break;
             case 'b': body = optarg; upload = NULL; break;
             case 'm': method = optarg; break;

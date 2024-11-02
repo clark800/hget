@@ -31,7 +31,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -p <url>        use HTTP/HTTPS tunneling proxy
       -r <url>        use HTTP/HTTPS relay proxy (insecure for https)
       -t <seconds>    set connection timeout
-      -x              output explicit response; ignore response status
+      -e              output explicit response; ignore response status
       -d              output direct response (disable redirects)
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)

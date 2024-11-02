@@ -165,7 +165,8 @@ int handle_response(char* buffer, FILE* sock, URL url, char* dest,
         char* method, int explicit, int direct, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     int status_code = parse_status_line(buffer);
-    if (explicit || status_code/100 == 2 || (direct && status_code/100 == 3)) {
+    if (status_code/100 == 2 || (direct && status_code/100 == 3) ||
+            (explicit && (status_code/100 != 3 || status_code == 304))) {
         FILE* out = open_file(dest, url);
         if (explicit)
             write_out(out, buffer, headlen);
