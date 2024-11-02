@@ -18,6 +18,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
 "  -t <seconds>    set connection timeout\n"
 "  -x              output explicit response; ignore response status\n"
+"  -d              output direct response (disable redirects)\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
 "  -a <user:pass>  add http basic authentication header\n"
@@ -29,9 +30,10 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -k <path>       set the client private key\n";
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
-static int quiet, explicit, update, insecure, timeout, relay, nheaders, wget;
-static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method,
-            *body, *headers[32];
+static int quiet, explicit, direct, update, insecure, timeout, relay, nheaders;
+static int wget;
+static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
+static char *body, *headers[32];
 
 static void timeout_fail(int signal) {
     (void)signal;
@@ -77,7 +79,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnx";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnxd";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'p':
@@ -105,6 +107,9 @@ static void parse_args(int argc, char* argv[]) {
                 break;
             case 'x':
                 explicit = 1;
+                break;
+            case 'd':
+                direct = 1;
                 break;
             case 'b':
                 body = optarg;
@@ -242,21 +247,21 @@ int main(int argc, char *argv[]) {
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     int status_code = interact(url, proxy, relay, auth, method, headers, body,
-                          upload, dest, explicit, update, cacerts, cert, key,
-                          insecure, timeout, bar, 0);
+                          upload, dest, explicit, direct, update, cacerts, cert,
+                          key, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
         wait(NULL);  // wait for bar to finish drawing
     }
 
-    if (explicit || status_code / 100 == 2 || status_code == 304)
+    if (explicit || status_code/100 == 2 || status_code/100 == 3)
         return OK;
     if (status_code == 404 || status_code == 410)
         return ENOTFOUND;
-    if (status_code / 100 == 4)
+    if (status_code/100 == 4)
         return EREQUEST;
-    if (status_code / 100 == 5)
+    if (status_code/100 == 5)
         return ESERVER;
     return EFAIL;
 }

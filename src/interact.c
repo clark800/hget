@@ -80,8 +80,8 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 
 int interact(URL url, URL proxy, int relay, char* auth, char* method,
         char** headers, char* body, char* upload, char* dest, int explicit,
-        int update, char* cacerts, char* cert, char* key, int insecure,
-        int timeout, FILE* bar, int redirects) {
+        int direct, int update, char* cacerts, char* cert, char* key,
+        int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ?
         opensock(proxy, cacerts, cert, key, 0, timeout) : NULL;
@@ -92,12 +92,12 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
     request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
             body, upload, dest, update);
     int status_code = handle_response(buffer, sock, url, dest, method,
-                                      explicit, bar);
+                                      explicit, direct, bar);
     fclose(sock);
     if (proxysock && proxysock != sock)
         fclose(proxysock);
 
-    if (!explicit && status_code / 100 == 3 && status_code != 304) {
+    if (!direct && status_code/100 == 3 && status_code != 304) {
         if (redirects >= 20)
             fail("error: too many redirects", EFAIL);
         char* location = get_header(buffer, "Location:");
@@ -105,8 +105,8 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
             fail("error: redirect missing location", EFAIL);
         return interact(parse_url(location), proxy, relay, auth,
             status_code == 303 ? "GET" : method, headers, body, upload, dest,
-            explicit, update, cacerts, cert, key, insecure, timeout, bar,
-            redirects + 1);
+            explicit, direct, update, cacerts, cert, key, insecure, timeout,
+            bar, redirects + 1);
     }
     return status_code;
 }

@@ -162,10 +162,10 @@ static void print_status_line(char* response) {
 }
 
 int handle_response(char* buffer, FILE* sock, URL url, char* dest,
-        char* method, int explicit, FILE* bar) {
+        char* method, int explicit, int direct, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     int status_code = parse_status_line(buffer);
-    if (explicit || status_code / 100 == 2) {
+    if (explicit || status_code/100 == 2 || (direct && status_code/100 == 3)) {
         FILE* out = open_file(dest, url);
         if (explicit)
             write_out(out, buffer, headlen);
@@ -177,8 +177,7 @@ int handle_response(char* buffer, FILE* sock, URL url, char* dest,
         }
         if (fclose(out) != 0)
             sfail("close failed");
-    }
-    else if (status_code >= 400)
+    } else if (status_code >= 400)
         print_status_line(buffer);
     return status_code;
 }
