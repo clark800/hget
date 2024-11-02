@@ -162,12 +162,12 @@ int main(int argc, char *argv[]) {
 
     char argfile_path[PATH_MAX];
     get_config_path(argfile_path, "args");
-    size_t argfile_size = get_file_size(argfile_path);
+    size_t argfile_size = wget ? 0 : get_file_size(argfile_path);
     char buffer[argfile_size + 1];  // must be in main scope to keep optargs
     if (argfile_size)
         parse_argfile(argv[0], argfile_path, buffer, argfile_size);
 
-    char* envargs = getenv("HGET_ARGS");
+    char* envargs = wget ? NULL : getenv("HGET_ARGS");
     // ISO C99 7.20.4.5: The getenv function
     // "The string pointed to shall not be modified by the program"
     char envbuf[(envargs ? strlen(envargs) : 0) + 1];
