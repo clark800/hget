@@ -5,7 +5,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 <1% as much code.
 
 #### Features
-* Support for tunnel and relay mode HTTP/HTTPS proxies
+* Support for tunnel and relay mode HTTP/HTTPS proxies (including TLS in TLS)
 * Automatically follows HTTP 3xx redirects.
 * Download progress can be sent to an external progress bar utility.
 * If the destination file exists and the `-n` option is specified,
@@ -61,8 +61,6 @@ Run `./make bearssl` or `./make libressl` to build with https support.
 Building with `bearssl` requires both [bearssl](https://bearssl.org/)
 and [libtls-bearssl](https://github.com/michaelforney/libtls-bearssl).
 Building with `libressl` requires [libressl](http://www.libressl.org/).
-
-To set the CA bundle path set the `CA_BUNDLE` environment variable.
 
 To build with the `musl-gcc` wrapper, use e.g. `env CC=musl-gcc ./make`.
 
