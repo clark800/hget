@@ -20,10 +20,8 @@ case "$1" in
     '') : ;;
     bearssl) TLS=1; LIBS="-lbearssl";;
     libressl) TLS=1;;
-    brew) TLS=1
-        LDFLAGS="-L/opt/homebrew/opt/libressl/lib"
-        CPPFLAGS="-I/opt/homebrew/opt/libressl/include"
-        CA_BUNDLE="/opt/homebrew/etc/ca-certificates/cert.pem";;
+    brew) TLS=1; LDFLAGS="-L/opt/homebrew/opt/libressl/lib"
+          CPPFLAGS="-I/opt/homebrew/opt/libressl/include";;
     sloc) gcc -fpreprocessed -dD -E -P *.c *.h | wc -l; exit 0;;
     clean) rm -f hget; exit 0;;
     *) echo "unrecognized target" >&2; exit 1;;
@@ -42,6 +40,5 @@ fi
 "${CC:-cc}" $CPPFLAGS ${CFLAGS--O2} $LDFLAGS -std=c99 \
     -Wpedantic -Wall -Wextra -Wfatal-errors -Wshadow -Wcast-qual \
     -Wmissing-prototypes -Wstrict-prototypes -Wredundant-decls \
-    -D CA_BUNDLE="\"${CA_BUNDLE:-/etc/ssl/certs/ca-certificates.crt}\"" \
     -D BUFSIZE="${HGET_BUFSIZE:-8192}" \
     -o hget $SOURCES $LIBS

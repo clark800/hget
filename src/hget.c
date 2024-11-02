@@ -28,12 +28,10 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -i <path>       set the client identity certificate\n"
 "  -k <path>       set the client private key\n";
 
-static int quiet = 0, explicit = 0, update = 0, insecure = 0, timeout = 0,
-           relay = 0, nheaders = 0, wget = 0;
-static char *dest = NULL, *upload = NULL, *proxyurl = NULL, *auth = NULL,
-            *cacerts = NULL, *cert = NULL, *key = NULL, *method = NULL,
-            *body = NULL;
-static char* headers[32] = {0};
+// ISO C99 6.7.8/10 static objects are initialized to 0
+static int quiet, explicit, update, insecure, timeout, relay, nheaders, wget;
+static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method,
+            *body, *headers[32];
 
 static void timeout_fail(int signal) {
     (void)signal;
@@ -77,7 +75,8 @@ static void usage(int status, int full) {
 }
 
 static void parse_args(int argc, char* argv[]) {
-    optind = 1;
+    // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
+    optind = 1;  // https://stackoverflow.com/a/60484617/2647751
     const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
@@ -158,7 +157,7 @@ static int tokenize(char* p, char** argv, char* delim, char* quotes) {
 }
 
 static void parse_argstring(char* string) {
-    char* argv[strlen(string)/2 + 1];
+    char* argv[strlen(string)/2 + 2]; // extra +1 since we start at argv[1]
     int argc = tokenize(string, argv, " \t\r\n", "'\"");
     parse_args(argc, argv);
 }
@@ -222,9 +221,6 @@ int main(int argc, char *argv[]) {
     char proxybuf[proxyurl ? strlen(proxyurl) + 1 : 1];
     strcpy(proxybuf, proxyurl ? proxyurl : "");
     URL proxy = proxyurl ? parse_url(proxybuf) : (URL){0};
-
-    if (!cacerts)
-        cacerts = CA_BUNDLE;
 
     if (!auth && url.userinfo[0])
         auth = url.userinfo;  // so auth will apply to redirects

@@ -59,11 +59,12 @@ static struct tls* new_tls_client(const char* cacerts, const char* cert,
         tls_config_insecure_noverifycert(tls_config);
         tls_config_insecure_noverifyname(tls_config);
         tls_config_insecure_noverifytime(tls_config);
-    } else if (isdir(cacerts)) {
-        if (tls_config_set_ca_path(tls_config, cacerts) != 0)
-            fail("failed to set CA directory", NULL);
-    } else if (tls_config_set_ca_file(tls_config, cacerts) != 0) {
-        fail("failed to load CA bundle", NULL);
+    } else if (cacerts) {
+        if (isdir(cacerts)) {
+            if (tls_config_set_ca_path(tls_config, cacerts) != 0)
+                fail("failed to set CA directory", NULL);
+        } else if (tls_config_set_ca_file(tls_config, cacerts) != 0)
+            fail("failed to load CA bundle", NULL);
     }
     if (cert && key)
         if (tls_config_set_keypair_file(tls_config, cert, key) != 0)
