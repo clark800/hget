@@ -82,63 +82,27 @@ static void parse_args(int argc, char* argv[]) {
     const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnxd";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
-            case 'p':
-                proxyurl = optarg;
-                relay = 0;
-                break;
-            case 'r':
-                proxyurl = optarg;
-                relay = 1;
-                break;
-            case 'f':
-                insecure = 1;
-                break;
-            case 't':
-                timeout = atoi(optarg);
-                break;
-            case 'a':
-                auth = optarg;
-                break;
-            case 'c':
-                cacerts = optarg;
-                break;
-            case 'n':
-                update = 1;
-                break;
-            case 'x':
-                explicit = 1;
-                break;
-            case 'd':
-                direct = 1;
-                break;
-            case 'b':
-                body = optarg;
-                upload = NULL;
-                break;
-            case 'm':
-                method = optarg;
-                break;
+            case 'O':
+            case 'o': dest = optarg; break;
+            case 'p': proxyurl = optarg; relay = 0; break;
+            case 'r': proxyurl = optarg; relay = 1; break;
+            case 'f': insecure = 1; break;
+            case 't': timeout = atoi(optarg); break;
+            case 'a': auth = optarg; break;
+            case 'c': cacerts = optarg; break;
+            case 'n': update = 1; break;
+            case 'x': explicit = 1; break;
+            case 'd': direct = 1; break;
+            case 'b': body = optarg; upload = NULL; break;
+            case 'm': method = optarg; break;
+            case 'u': upload = optarg; body = NULL; break;
+            case 'q': quiet = 1; break;
+            case 'i': cert = optarg; break;
+            case 'k': key = optarg; break;
             case 'h':
                 if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 2))
                     fail("Too many header arguments", EUSAGE);
                 headers[nheaders++] = optarg;
-                break;
-            case 'o':
-            case 'O':
-                dest = optarg;
-                break;
-            case 'u':
-                upload = optarg;
-                body = NULL;
-                break;
-            case 'q':
-                quiet = 1;
-                break;
-            case 'i':
-                cert = optarg;
-                break;
-            case 'k':
-                key = optarg;
                 break;
             default:
                 if (argc == 2 && optopt == 'h')  // treat this like "help"
