@@ -17,8 +17,9 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
 "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
 "  -t <seconds>    set connection timeout\n"
-"  -e              output explicit response; ignore response status\n"
+"  -e              output entire response (include response header)\n"
 "  -d              output direct response (disable redirects)\n"
+"  -l              lax mode (output response regardless of response status)\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
 "  -a <user:pass>  add http basic authentication header\n"
@@ -30,8 +31,8 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -k <path>       set the client private key\n";
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
-static int quiet, explicit, direct, update, insecure, timeout, relay, nheaders;
-static int wget;
+static int quiet, entire, direct, lax, update, insecure, timeout, relay;
+static int nheaders, wget;
 static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
 static char *body, *headers[32];
 
@@ -79,7 +80,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqned";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnedl";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -91,8 +92,9 @@ static void parse_args(int argc, char* argv[]) {
             case 'a': auth = optarg; break;
             case 'c': cacerts = optarg; break;
             case 'n': update = 1; break;
-            case 'e': explicit = 1; break;
+            case 'e': entire = 1; break;
             case 'd': direct = 1; break;
+            case 'l': lax = 1; break;
             case 'b': body = optarg; upload = NULL; break;
             case 'm': method = optarg; break;
             case 'u': upload = optarg; body = NULL; break;
@@ -211,15 +213,15 @@ int main(int argc, char *argv[]) {
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     int status_code = interact(url, proxy, relay, auth, method, headers, body,
-                          upload, dest, explicit, direct, update, cacerts, cert,
-                          key, insecure, timeout, bar, 0);
+                          upload, dest, entire, direct, lax, update, cacerts,
+                          cert, key, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon
         wait(NULL);  // wait for bar to finish drawing
     }
 
-    if (explicit || status_code/100 == 2 || status_code/100 == 3)
+    if (lax || status_code/100 == 2 || status_code/100 == 3)
         return OK;
     if (status_code == 404 || status_code == 410)
         return ENOTFOUND;

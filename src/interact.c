@@ -79,8 +79,8 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 }
 
 int interact(URL url, URL proxy, int relay, char* auth, char* method,
-        char** headers, char* body, char* upload, char* dest, int explicit,
-        int direct, int update, char* cacerts, char* cert, char* key,
+        char** headers, char* body, char* upload, char* dest, int entire,
+        int direct, int lax, int update, char* cacerts, char* cert, char* key,
         int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ?
@@ -91,8 +91,8 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
 
     request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
             body, upload, dest, update);
-    int status_code = handle_response(buffer, sock, url, dest, method,
-                                      explicit, direct, bar);
+    int status_code = handle_response(buffer, sock, url, dest, method, entire,
+                                      direct, lax, bar);
     fclose(sock);
     if (proxysock && proxysock != sock)
         fclose(proxysock);
@@ -105,7 +105,7 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
             fail("error: redirect missing location", EFAIL);
         return interact(parse_url(location), proxy, relay, auth,
             status_code == 303 ? "GET" : method, headers, body, upload, dest,
-            explicit, direct, update, cacerts, cert, key, insecure, timeout,
+            entire, direct, lax, update, cacerts, cert, key, insecure, timeout,
             bar, redirects + 1);
     }
     return status_code;
