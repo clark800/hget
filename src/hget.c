@@ -109,6 +109,7 @@ static void parse_args(int argc, char* argv[]) {
                 break;
             case 'b':
                 body = optarg;
+                upload = NULL;
                 break;
             case 'm':
                 method = optarg;
@@ -124,6 +125,7 @@ static void parse_args(int argc, char* argv[]) {
                 break;
             case 'u':
                 upload = optarg;
+                body = NULL;
                 break;
             case 'q':
                 quiet = 1;
@@ -155,14 +157,18 @@ static int tokenize(char* p, char** argv, char* delim, char* quotes) {
     return argc;
 }
 
+static void parse_argstring(char* string) {
+    char* argv[strlen(string)/2 + 1];
+    int argc = tokenize(string, argv, " \t\r\n", "'\"");
+    parse_args(argc, argv);
+}
+
 static void parse_argfile(char* path, char* buffer, size_t size) {
     FILE* file = fopen(path, "r");
     if (file == NULL || fread(buffer, 1, size, file) != size)
         fail("error: failed to read argfile", EFAIL);
     buffer[size] = 0;
-    char* argv[size/2 + 1];
-    int argc = tokenize(buffer, argv, " \t\r\n", "'\"");
-    parse_args(argc, argv);
+    parse_argstring(buffer);
 }
 
 static char* get_config_path(char* buffer, char* relpath) {
@@ -186,6 +192,12 @@ int main(int argc, char *argv[]) {
     if (argfile_size)
         parse_argfile(argfile_path, buffer, argfile_size);
 
+    char* envargs = getenv("HGET_ARGS");
+    // ISO C99 7.20.4.5: The getenv function
+    // "The string pointed to shall not be modified by the program"
+    char envbuf[(envargs ? strlen(envargs) : 0) + 1];
+    parse_argstring(strcpy(envbuf, envargs ? envargs : ""));
+
     parse_args(argc, argv);
 
     if (optind != argc - 1)
@@ -194,8 +206,6 @@ int main(int argc, char *argv[]) {
     char* arg = argv[optind++];
     URL url = parse_url(arg);
 
-    if (!proxyurl)
-        proxyurl = getenv("HGET_PROXY");
     if (!proxyurl) {
         if (strcmp(url.scheme, "https") == 0) {
             proxyurl = getenv("HTTPS_PROXY");
@@ -214,10 +224,6 @@ int main(int argc, char *argv[]) {
     URL proxy = proxyurl ? parse_url(proxybuf) : (URL){0};
 
     if (!cacerts)
-        cacerts = getenv("HGET_CA_BUNDLE");
-    if (!cacerts)
-        cacerts = getenv("CA_BUNDLE");
-    if (!cacerts)
         cacerts = CA_BUNDLE;
 
     if (!auth && url.userinfo[0])
@@ -225,9 +231,6 @@ int main(int argc, char *argv[]) {
 
     if (!is_stdout(dest) && isdir(dest) && chdir(dest) != 0)
         fail("error: output directory is not accessible", EUSAGE);
-
-    if (body && upload)
-        fail("error: -b and -u options are exclusive", EUSAGE);
 
     if ((cert && !key) || (key && !cert))
         fail("error: -i and -k options must be used together", EUSAGE);
