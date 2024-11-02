@@ -1,4 +1,5 @@
 hget
+wget
 *.pem
 *.crt
 cacerts

@@ -14,6 +14,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -o <path>       write output to the specified file or directory\n"
 "  -n              only download if server file is newer than local file\n"
 "  -q              disable progress bar\n"
+"  -s              suppress all error messages after usage checks\n"
 "  -p <url>        use HTTP/HTTPS tunneling proxy\n"
 "  -r <url>        use HTTP/HTTPS relay proxy (insecure for https)\n"
 "  -t <seconds>    set connection timeout\n"
@@ -33,7 +34,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
 static int quiet, entire, direct, lax, update, insecure, timeout, relay;
-static int nheaders, wget;
+static int suppress, nheaders, wget;
 static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
 static char *body, *headers[32];
 
@@ -81,7 +82,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnedlx";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqsnedlx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -100,7 +101,8 @@ static void parse_args(int argc, char* argv[]) {
             case 'b': body = optarg; upload = NULL; break;
             case 'm': method = optarg; break;
             case 'u': upload = optarg; body = NULL; break;
-            case 'q': quiet = 1; break;
+            case 'q': quiet = 1; suppress |= wget; break;
+            case 's': suppress = 1; break;
             case 'i': cert = optarg; break;
             case 'k': key = optarg; break;
             case 'h':
@@ -129,18 +131,19 @@ static int tokenize(char* p, char** argv, char* delim, char* quotes) {
     return argc;
 }
 
-static void parse_argstring(char* string) {
+static void parse_argstring(char* argv0, char* string) {
     char* argv[strlen(string)/2 + 2]; // extra +1 since we start at argv[1]
     int argc = tokenize(string, argv, " \t\r\n", "'\"");
+    argv[0] = argv0;
     parse_args(argc, argv);
 }
 
-static void parse_argfile(char* path, char* buffer, size_t size) {
+static void parse_argfile(char* argv0, char* path, char* buffer, size_t size) {
     FILE* file = fopen(path, "r");
     if (file == NULL || fread(buffer, 1, size, file) != size)
         fail("error: failed to read argfile", EFAIL);
     buffer[size] = 0;
-    parse_argstring(buffer);
+    parse_argstring(argv0, buffer);
 }
 
 static char* get_config_path(char* buffer, char* relpath) {
@@ -162,13 +165,13 @@ int main(int argc, char *argv[]) {
     size_t argfile_size = get_file_size(argfile_path);
     char buffer[argfile_size + 1];  // must be in main scope to keep optargs
     if (argfile_size)
-        parse_argfile(argfile_path, buffer, argfile_size);
+        parse_argfile(argv[0], argfile_path, buffer, argfile_size);
 
     char* envargs = getenv("HGET_ARGS");
     // ISO C99 7.20.4.5: The getenv function
     // "The string pointed to shall not be modified by the program"
     char envbuf[(envargs ? strlen(envargs) : 0) + 1];
-    parse_argstring(strcpy(envbuf, envargs ? envargs : ""));
+    parse_argstring(argv[0], strcpy(envbuf, envargs ? envargs : ""));
 
     parse_args(argc, argv);
 
@@ -214,6 +217,8 @@ int main(int argc, char *argv[]) {
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
+    if (suppress)  // do this here so that usage errors still print to stderr
+        freopen("/dev/null", "w", stderr);
     int status_code = interact(url, proxy, relay, auth, method, headers, body,
                           upload, dest, entire, direct, lax, update, cacerts,
                           cert, key, insecure, timeout, bar, 0);
