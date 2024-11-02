@@ -12,7 +12,7 @@ static void swritefile(FILE* sock, const char* path, char* buf) {
         sfail("failed to open upload file");
     for (size_t n = 0; (n = fread(buf, 1, BUFSIZE, file)) > 0;)
         if (fwrite(buf, 1, n, sock) != n)
-            fail("send failed", EFAIL);
+            sfail("send failed");
 }
 
 static size_t base64encode(const char* in, size_t n, char* out) {
@@ -30,7 +30,7 @@ static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
     size_t m = strlen(auth);
     size_t n = snprintf(buffer, N, "%s: Basic ", name);
     if (4 * ((m + 2) / 3) + 2 > (n < N ? N - n : 0))
-        fail("error: auth string too long", EFAIL);
+        fail("error: auth string too long", EUSAGE);
     n += base64encode(auth, m, buffer + n);
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     return n;
@@ -87,7 +87,7 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
 
     if (n >= N)  // equal is a failure because of null terminator
-        fail("error: request too large", EFAIL);
+        fail("error: request too large", EUSAGE);
 
     if (body && strlen(body) < (n < N ? N - n : 0)) {
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s", body);
@@ -113,6 +113,6 @@ void send_proxy_connect(char* buffer, FILE* sock, URL url, URL proxy) {
                 proxy.userinfo);
     n += snprintf(buffer + n, n < N ? N - n : 0, "\r\n");
     if (n >= N)  // equal is a failure because of null terminator
-        fail("error: proxy connect request too long", EFAIL);
+        fail("error: proxy connect request too long", EUSAGE);
     swrite(sock, buffer);
 }

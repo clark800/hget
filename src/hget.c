@@ -40,7 +40,7 @@ static char *body, *headers[32];
 
 static void timeout_fail(int signal) {
     (void)signal;
-    fail("error: timeout", EFAIL);
+    fail("error: timeout", ETIMEOUT);
 }
 
 static FILE* open_pipe(char* command, char* arg) {
@@ -141,7 +141,7 @@ static void parse_argstring(char* argv0, char* string) {
 static void parse_argfile(char* argv0, char* path, char* buffer, size_t size) {
     FILE* file = fopen(path, "r");
     if (file == NULL || fread(buffer, 1, size, file) != size)
-        fail("error: failed to read argfile", EFAIL);
+        fail("error: failed to read argfile", EUSAGE);
     buffer[size] = 0;
     parse_argstring(argv0, buffer);
 }
@@ -234,7 +234,5 @@ int main(int argc, char *argv[]) {
         return ENOTFOUND;
     if (status_code/100 == 4)
         return EREQUEST;
-    if (status_code/100 == 5)
-        return ESERVER;
-    return EFAIL;
+    return ESERVER;  // 5xx, 1xx, and invalid status codes
 }

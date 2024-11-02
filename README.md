@@ -71,9 +71,13 @@ To build with the `musl-gcc` wrapper, use e.g. `env CC=musl-gcc ./make`.
 
 # Return codes
 
-* 0 - OK
-* 1 - failure
-* 2 - usage error
-* 3 - not found or gone (404 or 410)
-* 4 - request error (4xx, except 404 or 410)
-* 5 - server error (5xx)
+* 0 - OK (2xx or 3xx)
+* 1 - not found or gone (404 or 410)
+* 2 - request error (4xx, except 404 or 410)
+* 3 - server error or unexpected status (5xx, 1xx)
+* 4 - too many redirects
+* 5 - proxy error
+* 6 - protocol error
+* 7 - timeout error
+* 8 - system or network error
+* 9 - usage error

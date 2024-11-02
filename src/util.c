@@ -13,7 +13,7 @@ void* fail(const char* message, int status) {
 
 void sfail(const char* message) {
     perror(message);
-    exit(EFAIL);
+    exit(ESYSTEM);
 }
 
 char* get_filename(char* path) {

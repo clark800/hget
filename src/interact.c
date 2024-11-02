@@ -74,7 +74,7 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 
     FILE* sock = wrap_tls(proxysock, url.host, cacerts, cert, key, insecure);
     if (sock == NULL)
-        fail("error: wrap_tls failed", EFAIL);
+        sfail("error: wrap_tls failed");
     return sock;
 }
 
@@ -99,10 +99,10 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
 
     if (!direct && status_code/100 == 3 && status_code != 304) {
         if (redirects >= 20)
-            fail("error: too many redirects", EFAIL);
+            fail("error: too many redirects", EREDIRECT);
         char* location = get_header(buffer, "Location:");
         if (location == NULL)
-            fail("error: redirect missing location", EFAIL);
+            fail("error: redirect missing location", EPROTOCOL);
         return interact(parse_url(location), proxy, relay, auth,
             status_code == 303 ? "GET" : method, headers, body, upload, dest,
             entire, direct, lax, update, cacerts, cert, key, insecure, timeout,

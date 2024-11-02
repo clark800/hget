@@ -1,4 +1,5 @@
-enum {OK, EFAIL, EUSAGE, ENOTFOUND, EREQUEST, ESERVER};
+enum {OK, ENOTFOUND, EREQUEST, ESERVER, EREDIRECT, EPROXY, EPROTOCOL, ETIMEOUT,
+      ESYSTEM, EUSAGE};
 
 typedef struct {
     char *scheme, *userinfo, *host, *port, *path, *query, *fragment;

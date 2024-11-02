@@ -41,16 +41,16 @@ static size_t write_body_span(FILE* out, void* buf, size_t len,
 
 static int parse_status_line(char* response) {
     if (response[0] == 0)
-        fail("error: no response", EFAIL);
+        fail("error: no response", EPROTOCOL);
     if (strncmp(response, "HTTP/", 5) != 0)
-        fail("error: invalid http response", EFAIL);
+        fail("error: invalid http response", EPROTOCOL);
 
     char* space = strchr(response, ' ');
     if (space == NULL)
-        fail("error: invalid http response", EFAIL);
+        fail("error: invalid http response", EPROTOCOL);
     long status_code = strtol(space+1, NULL, 10);
     if (status_code < 100 || status_code >= 600)
-        fail("error: invalid http response", EFAIL);
+        fail("error: invalid http response", EPROTOCOL);
     return status_code;
 }
 
@@ -67,7 +67,7 @@ char* get_header(char* response, char* name) {
         }
         endline = strstr(header, "\r\n");
     }
-    fail("error: response headers too long", EFAIL);
+    fail("error: response headers too long", EPROTOCOL);
     return NULL;
 }
 
@@ -93,8 +93,8 @@ static size_t read_head(FILE* sock, char* buf, size_t len) {
         if (strcmp(buf + n, "\r\n") == 0)
             return n + 2;
     if (n >= len)
-        fail("error: response header too long", EFAIL);
-    fail("error: invalid response header", EFAIL);
+        fail("error: response header too long", EPROTOCOL);
+    fail("error: invalid response header", EPROTOCOL);
     return 0;
 }
 
@@ -110,7 +110,7 @@ static size_t write_body(FILE* sock, char* buffer, FILE* out, FILE* bar) {
         write_body_span(out, buffer, n, progress, size, bar);
     }
     if (size && progress != size)
-        fail("connection closed before all data was received", EFAIL);
+        fail("error: response content shorter than expected", EPROTOCOL);
     return progress;
 }
 
@@ -119,7 +119,7 @@ static size_t write_chunk(FILE* sock, char* buffer, FILE* out) {
     size_t n = sreadln(sock, buffer, N);
     size_t size = (size_t)strtoul(buffer, NULL, 16);
     if (size == 0 && buffer[0] != '0')
-        fail("error: invalid chunked encoding (no terminator)", EFAIL);
+        fail("error: invalid chunked encoding (no terminator)", EPROTOCOL);
     if (size == 0)
         return 0;
     size_t progress = 0;
@@ -128,9 +128,9 @@ static size_t write_chunk(FILE* sock, char* buffer, FILE* out) {
         write_out(out, buffer, min(size - min(progress, size), n));
     }
     if (progress < size + 2)
-        fail("error: invalid chunked encoding (incorrect length)", EFAIL);
+        fail("error: invalid chunked encoding (incorrect length)", EPROTOCOL);
     if (n == 0 || buffer[n - 1] != '\n')
-        fail("error: invalid chunked encoding (missing \\r\\n)", EFAIL);
+        fail("error: invalid chunked encoding (missing \\r\\n)", EPROTOCOL);
     fflush(out);
     return size;
 }
@@ -156,7 +156,7 @@ static int is_chunked(char* header) {
 static void print_status_line(char* response) {
     char* space = strchr(response, ' ');
     if (space == NULL)
-        fail("error: invalid http response", EFAIL);
+        fail("error: invalid http response", EPROTOCOL);
     fwrite(space + 1, 1, strcspn(space + 1, "\r\n"), stderr);
     fputc('\n', stderr);
 }
@@ -190,6 +190,6 @@ void check_proxy_connect(char* buffer, FILE* sock) {
     if (status_code != 200) {
         fprintf(stderr, "proxy: ");
         print_status_line(buffer);
-        exit(EFAIL);
+        exit(EPROXY);
     }
 }
