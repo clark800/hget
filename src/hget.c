@@ -20,6 +20,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -e              output entire response (include response header)\n"
 "  -d              output direct response (disable redirects)\n"
 "  -l              lax mode (output response regardless of response status)\n"
+"  -x              output exact response (equivalent to -e -d -l)\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
 "  -a <user:pass>  add http basic authentication header\n"
@@ -80,7 +81,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnedl";
+    const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnedlx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -95,6 +96,7 @@ static void parse_args(int argc, char* argv[]) {
             case 'e': entire = 1; break;
             case 'd': direct = 1; break;
             case 'l': lax = 1; break;
+            case 'x': entire = 1; direct = 1; lax = 1; break;
             case 'b': body = optarg; upload = NULL; break;
             case 'm': method = optarg; break;
             case 'u': upload = optarg; body = NULL; break;

@@ -34,6 +34,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -e              output entire response (include response header)
       -d              output direct response (disable redirects)
       -l              lax mode (output response regardless of response status)
+      -x              output exact response (equivalent to -e -d -l)
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
       -a <user:pass>  add http basic authentication header
