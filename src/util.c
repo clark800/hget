@@ -21,6 +21,11 @@ char* get_filename(char* path) {
     return slash ? slash + 1 : path;
 }
 
+size_t get_file_size(char* path) {
+    struct stat sb;
+    return stat(path, &sb) == 0 ? sb.st_size : 0;
+}
+
 int is_stdout(char* dest) {
     // "-" is interpreted as stdout for compatibility with wget
     return dest == NULL || strcmp(dest, "-") == 0;

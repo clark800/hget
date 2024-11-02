@@ -10,4 +10,5 @@ int is_stdout(char* dest);
 void swrite(FILE* sock, const char* buf);
 int isdir(const char* path);
 char* get_filename(char* path);
+size_t get_file_size(char* path);
 URL parse_url(char* str);

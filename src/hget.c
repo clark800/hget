@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <limits.h>   // PATH_MAX
 #include <signal.h>
 #include <sys/wait.h>
 #include "util.h"
@@ -26,6 +27,13 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -c <path>       use the specified CA cert file or directory\n"
 "  -i <path>       set the client identity certificate\n"
 "  -k <path>       set the client private key\n";
+
+static int quiet = 0, explicit = 0, update = 0, insecure = 0, timeout = 0,
+           relay = 0, nheaders = 0, wget = 0;
+static char *dest = NULL, *upload = NULL, *proxyurl = NULL, *auth = NULL,
+            *cacerts = NULL, *cert = NULL, *key = NULL, *method = NULL,
+            *body = NULL;
+static char* headers[32] = {0};
 
 static void timeout_fail(int signal) {
     (void)signal;
@@ -62,21 +70,14 @@ static FILE* open_pipe(char* command, char* arg) {
     return file;
 }
 
-static void usage(int status, int full, int wget) {
+static void usage(int status, int full) {
     fputs(wget ? "Usage: wget [-q] [-O <path>] <url>\n" :
          (full ? USAGE : "Usage: hget [options] <url>\n"), stderr);
     exit(status);
 }
 
-int main(int argc, char *argv[]) {
-    int quiet = 0, explicit = 0, update = 0, insecure = 0, timeout = 0;
-    int relay = 0, nheaders = 0;
-    int wget = strcmp(get_filename(argv[0]), "wget") == 0;
-    char *dest = wget ? "." : NULL, *upload = NULL, *proxyurl = NULL,
-         *auth = NULL, *cacerts = NULL, *cert = NULL, *key = NULL,
-         *method = "GET", *body = NULL;
-    char* headers[32] = {0};
-
+static void parse_args(int argc, char* argv[]) {
+    optind = 1;
     const char* opts = wget ? "O:q" : "o:u:p:r:t:a:c:m:h:b:i:k:fqnx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
@@ -135,13 +136,60 @@ int main(int argc, char *argv[]) {
                 break;
             default:
                 if (argc == 2 && optopt == 'h')  // treat this like "help"
-                    usage(0, 1, wget);
+                    usage(0, 1);
                 exit(EUSAGE);
         }
     }
+}
+
+static char* next(char* p, char* delim, char* quotes) {
+    // d points to the next character after the end of the current token
+    char* d = strchr(quotes, p[0]) ? strchr(p + 1, p[0]) : strpbrk(p, delim);
+    return d ? (*d = 0, (d + 1) + strspn(d + 1, delim)) : d;
+}
+
+static int tokenize(char* p, char** argv, char* delim, char* quotes) {
+    int argc = 1;
+    for (p += strspn(p, delim); p && *p; p = next(p, delim, quotes))
+        argv[argc++] = strchr(quotes, p[0]) ? p + 1 : p;
+    return argc;
+}
+
+static void parse_argfile(char* path, char* buffer, size_t size) {
+    FILE* file = fopen(path, "r");
+    if (file == NULL || fread(buffer, 1, size, file) != size)
+        fail("error: failed to read argfile", EFAIL);
+    buffer[size] = 0;
+    char* argv[size/2 + 1];
+    int argc = tokenize(buffer, argv, " \t\r\n", "'\"");
+    parse_args(argc, argv);
+}
+
+static char* get_config_path(char* buffer, char* relpath) {
+    char* config_home = getenv("XDG_CONFIG_HOME");
+    if (config_home)
+        return strcat(strcat(strcpy(buffer, config_home), "/hget/"), relpath);
+    char* home = getenv("HOME");
+    if (home)
+        return strcat(strcat(strcpy(buffer, home), "/.config/hget/"), relpath);
+    return NULL;
+}
+
+int main(int argc, char *argv[]) {
+    wget = strcmp(get_filename(argv[0]), "wget") == 0;
+    dest = wget ? "." : NULL;
+
+    char argfile_path[PATH_MAX];
+    get_config_path(argfile_path, "args");
+    size_t argfile_size = get_file_size(argfile_path);
+    char buffer[argfile_size + 1];  // must be in main scope to keep optargs
+    if (argfile_size)
+        parse_argfile(argfile_path, buffer, argfile_size);
+
+    parse_args(argc, argv);
 
     if (optind != argc - 1)
-        usage(argc == 1 ? 0 : EUSAGE, argc == 1, wget);
+        usage(argc == 1 ? 0 : EUSAGE, argc == 1);
 
     char* arg = argv[optind++];
     URL url = parse_url(arg);

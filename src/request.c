@@ -39,10 +39,7 @@ static size_t write_auth(char* buffer, size_t N, char* name, char* auth) {
 static size_t get_content_length(char* body, char* upload) {
     if (body || !upload)
         return body ? strlen(body) : 0;
-    struct stat sb;
-    if (stat(upload, &sb) != 0)
-        fail("error: failed to stat upload file", EFAIL);
-    return sb.st_size;
+    return get_file_size(upload);
 }
 
 void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
@@ -51,7 +48,7 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     struct stat sb;
     size_t n = 0, N = BUFSIZE;
 
-    n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method);
+    n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method ? method : "GET");
     if (proxy.host) {
         char* scheme = url.scheme[0] ? url.scheme : "http";
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s://", scheme);

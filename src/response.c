@@ -169,7 +169,7 @@ int handle_response(char* buffer, FILE* sock, URL url, char* dest,
         FILE* out = open_file(dest, url);
         if (explicit)
             write_out(out, buffer, headlen);
-        if (strcmp(method, "HEAD") != 0) {
+        if (strcmp(method ? method : "GET", "HEAD") != 0) {
             if (is_chunked(buffer))
                 write_chunks(sock, buffer, out);
             else
