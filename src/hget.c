@@ -233,6 +233,9 @@ int main(int argc, char *argv[]) {
     if (is_stdout(dest) && isatty(1))
         quiet = 1;   // prevent mixing progress bar with output on stdout
 
+    if (!method)
+        method = (body || upload) ? "POST" : "GET";
+
     FILE* bar = quiet ? NULL : open_pipe(getenv("PROGRESS"), arg);
     if (suppress)  // do this here so that usage errors still print to stderr
         freopen("/dev/null", "w", stderr);

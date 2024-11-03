@@ -50,7 +50,7 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     char time[32];
     size_t n = 0, N = BUFSIZE;
 
-    n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method ? method : "GET");
+    n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method);
     if (proxy.host) {
         char* scheme = url.scheme[0] ? url.scheme : "http";
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s://", scheme);
