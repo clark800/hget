@@ -36,6 +36,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -a <user:pass>  add http basic authentication header\n"
 "  -b <body>       set the body of the request\n"
 "  -u <path>       upload file as request body\n"
+"  -z              request a gzip compressed response and output gzip file\n"
 "  -f              force https connection even if it is insecure\n"
 "  -c <path>       use the specified CA cert file or directory\n"
 "  -i <path>       set the client identity certificate\n"
@@ -44,7 +45,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
 static int quiet, entire, direct, lax, insecure, timeout, tunnel;
-static int suppress, resume, verbose, nheaders, wget;
+static int suppress, resume, verbose, zip, nheaders, wget;
 static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
 static char *body, *newer, *headers[32];
 
@@ -92,7 +93,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:n:fqsredlxvj";
+    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:n:fqsredlxvjz";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -117,6 +118,7 @@ static void parse_args(int argc, char* argv[]) {
             case 'i': cert = optarg; break;
             case 'k': key = optarg; break;
             case 'v': verbose = 1; break;
+            case 'z': zip = 1; break;
             case 'j':
             case 'h':
                 if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 2))
@@ -244,7 +246,7 @@ int main(int argc, char *argv[]) {
         freopen("/dev/null", "w", stderr);
     int status_code = interact(url, proxy, tunnel, auth, method, headers, body,
                           upload, dest, entire, direct, lax, newer, resume,
-                          cacerts, cert, key, insecure, timeout, verbose,
+                          cacerts, cert, key, insecure, timeout, verbose, zip,
                           bar, 0);
 
     if (bar) {

@@ -45,7 +45,7 @@ static size_t get_content_length(char* body, char* upload) {
 
 void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         char* method, char** headers, char* body, char* upload, char* dest,
-        char* newer, int resume, int verbose) {
+        char* newer, int resume, int verbose, int zip) {
     struct stat sb;
     char time[32];
     size_t n = 0, N = BUFSIZE;
@@ -68,8 +68,8 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
 
     n += snprintf(buffer + n, n < N ? N - n : 0, "Host: %s\r\n", url.host);
     n += snprintf(buffer + n, n < N ? N - n : 0, "Connection: close\r\n");
-    n += snprintf(buffer + n, n < N ? N - n : 0,
-            "Accept-Encoding: identity\r\n");
+    n += snprintf(buffer + n, n < N ? N - n : 0, zip ?
+            "Accept-Encoding: gzip\r\n" : "Accept-Encoding: identity\r\n");
     if (!auth)
         auth = url.userinfo;
     if (auth && auth[0])

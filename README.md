@@ -43,6 +43,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -a <user:pass>  add http basic authentication header
       -b <body>       set the body of the request
       -u <path>       upload file as request body
+      -z              request a gzip compressed response and output gzip file
       -f              force https connection even if it is insecure
       -c <path>       use the specified CA cert file or directory
       -i <path>       set the client identity certificate

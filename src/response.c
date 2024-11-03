@@ -185,11 +185,17 @@ static void print_status_line(char* response) {
 }
 
 int handle_response(char* buffer, FILE* sock, URL url, char* dest, int resume,
-        char* method, int entire, int direct, int lax, FILE* bar) {
+        char* method, int entire, int direct, int lax, int zip, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     int status_code = parse_status_line(buffer);
     if (status_code/100 == 2 || (direct && status_code/100 == 3) ||
             (lax && (status_code/100 != 3 || status_code == 304))) {
+        char* encoding = get_header(buffer, "Content-Encoding:");
+        if (zip && (!encoding || strncmp(encoding, "gzip\r\n", 6) != 0))
+            fail("error: server does not support gzip", EPROTOCOL);
+        if (!zip && encoding && strncmp(encoding, "identity\r\n", 10) != 0)
+            fail("error: unexpected content encoding", EPROTOCOL);
+
         FILE* out = open_file(dest, status_code, buffer, resume, url);
         if (entire)
             write_out(out, buffer, headlen);
