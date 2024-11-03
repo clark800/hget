@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>  // strncasecmp
+#include <unistd.h>   // access
 #include "util.h"
 #include "response.h"
 
@@ -79,7 +80,7 @@ static FILE* open_file(char* dest, int status_code, char* header, int resume,
         char* range = get_header(header, "Content-Range:");
         if (!range)
             fail("error: missing content-range header", EPROTOCOL);
-        if (is_stdout(dest) || isdir(dest))
+        if (is_stdout(dest) || isdir(dest) || access(dest, F_OK) != 0)
             fail("error: invalid partial download", EUSAGE);
         char* space = strchr(range, ' ');
         size_t range_start = space ? strtoul(space + 1, NULL, 10) : 0;
@@ -101,6 +102,8 @@ static FILE* open_file(char* dest, int status_code, char* header, int resume,
             dest = "index.html";
     }
 
+    if (access(dest, F_OK) == 0)
+        fail("error: output file already exists", EUSAGE);
     FILE* out = fopen(dest, "w");
     if (out == NULL)
         sfail("open failed");
