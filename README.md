@@ -30,9 +30,9 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -n              only download if server file is newer than local file
       -q              disable progress bar
       -s              suppress all error messages after usage checks
-      -p <url>        use HTTP/HTTPS tunneling proxy
-      -r <url>        use HTTP/HTTPS relay proxy (insecure for https)
-      -t <seconds>    set connection timeout
+      -t <url>        use HTTP/HTTPS tunnel
+      -p <url>        use HTTP/HTTPS proxy (insecure for https)
+      -w <seconds>    wait time for connection timeout
       -e              output entire response (include response header)
       -d              output direct response (disable redirects)
       -l              lax mode (output response regardless of response status)
