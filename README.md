@@ -1,6 +1,7 @@
 # Introduction
 
 hget is a minimalist HTTP/HTTPS client and download utility written in C.
+
 hget is designed to provide 99% of the value-weighted utility of curl in
 <1% as much code.
 
