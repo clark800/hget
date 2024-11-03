@@ -19,8 +19,8 @@
 const char* USAGE = "Usage: hget [options] <url>\n"
 "Options:\n"
 "  -o <path>       write output to the specified file or directory\n"
+"  -n <path>       only download if server file is newer than local file\n"
 "  -r              resume partial download\n"
-"  -n              only download if server file is newer than local file\n"
 "  -q              disable progress bar\n"
 "  -s              suppress all error messages after usage checks\n"
 "  -t <url>        use HTTP/HTTPS tunnel\n"
@@ -43,10 +43,10 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -v              show verbose output\n";
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
-static int quiet, entire, direct, lax, update, insecure, timeout, tunnel;
+static int quiet, entire, direct, lax, insecure, timeout, tunnel;
 static int suppress, resume, verbose, nheaders, wget;
 static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
-static char *body, *headers[32];
+static char *body, *newer, *headers[32];
 
 static void timeout_fail(int signal) {
     (void)signal;
@@ -92,7 +92,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:fqsnredlxvj";
+    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:n:fqsredlxvj";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -104,7 +104,7 @@ static void parse_args(int argc, char* argv[]) {
             case 'w': timeout = atoi(optarg); break;
             case 'a': auth = optarg; break;
             case 'c': cacerts = optarg; break;
-            case 'n': update = 1; break;
+            case 'n': newer = optarg; break;
             case 'e': entire = 1; break;
             case 'd': direct = 1; break;
             case 'l': lax = 1; break;
@@ -237,7 +237,7 @@ int main(int argc, char *argv[]) {
     if (suppress)  // do this here so that usage errors still print to stderr
         freopen("/dev/null", "w", stderr);
     int status_code = interact(url, proxy, tunnel, auth, method, headers, body,
-                          upload, dest, entire, direct, lax, update, resume,
+                          upload, dest, entire, direct, lax, newer, resume,
                           cacerts, cert, key, insecure, timeout, verbose,
                           bar, 0);
 

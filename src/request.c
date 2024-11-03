@@ -45,7 +45,7 @@ static size_t get_content_length(char* body, char* upload) {
 
 void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         char* method, char** headers, char* body, char* upload, char* dest,
-        int update, int resume, int verbose) {
+        char* newer, int resume, int verbose) {
     struct stat sb;
     char time[32];
     size_t n = 0, N = BUFSIZE;
@@ -74,7 +74,9 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         auth = url.userinfo;
     if (auth && auth[0])
         n += write_auth(buffer + n, n < N ? N - n : 0, "Authorization", auth);
-    if (update && !is_stdout(dest) && stat(dest, &sb) == 0) {
+    if (newer) {
+        if (stat(newer, &sb) != 0)
+            fail("error: failed to read original file", EUSAGE);
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
         n += snprintf(buffer + n, n < N ? N - n : 0,
@@ -82,7 +84,7 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     }
     if (resume) {
         if (is_stdout(dest) || isdir(dest) || stat(dest, &sb) != 0)
-            fail("error: failed to read partial download file", ESYSTEM);
+            fail("error: failed to read partial download file", EUSAGE);
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
         n += snprintf(buffer + n, n < N ? N - n : 0,
