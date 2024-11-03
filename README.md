@@ -39,6 +39,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -x              output exact response (equivalent to -e -d -l)
       -m <method>     set the http request method
       -h <header>     add a header to the request (may be repeated)
+      -j              add content-type header for json
       -a <user:pass>  add http basic authentication header
       -b <body>       set the body of the request
       -u <path>       upload file as request body

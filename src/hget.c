@@ -32,6 +32,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 "  -x              output exact response (equivalent to -e -d -l)\n"
 "  -m <method>     set the http request method\n"
 "  -h <header>     add a header to the request (may be repeated)\n"
+"  -j              add content-type header for json\n"
 "  -a <user:pass>  add http basic authentication header\n"
 "  -b <body>       set the body of the request\n"
 "  -u <path>       upload file as request body\n"
@@ -91,7 +92,7 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:fqsnredlxv";
+    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:fqsnredlxvj";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
@@ -116,10 +117,12 @@ static void parse_args(int argc, char* argv[]) {
             case 'i': cert = optarg; break;
             case 'k': key = optarg; break;
             case 'v': verbose = 1; break;
+            case 'j':
             case 'h':
                 if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 2))
                     fail("Too many header arguments", EUSAGE);
-                headers[nheaders++] = optarg;
+                headers[nheaders++] = opt == 'h' ? optarg :
+                    "Content-Type: application/json";
                 break;
             default:
                 if (argc == 2 && optopt == 'h')  // treat this like "help"
