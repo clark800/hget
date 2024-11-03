@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <inttypes.h> // intmax_t
 #include <sys/stat.h>
 #include "util.h"
 #include "request.h"
@@ -44,8 +45,9 @@ static size_t get_content_length(char* body, char* upload) {
 
 void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         char* method, char** headers, char* body, char* upload, char* dest,
-        int update) {
+        int update, int resume) {
     struct stat sb;
+    char time[32];
     size_t n = 0, N = BUFSIZE;
 
     n += snprintf(buffer + n, n < N ? N - n : 0, "%s ", method ? method : "GET");
@@ -73,11 +75,19 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
     if (auth && auth[0])
         n += write_auth(buffer + n, n < N ? N - n : 0, "Authorization", auth);
     if (update && !is_stdout(dest) && stat(dest, &sb) == 0) {
-        char time[32];
         struct tm* timeinfo = gmtime(&sb.st_mtime);
         strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
         n += snprintf(buffer + n, n < N ? N - n : 0,
                 "If-Modified-Since: %s\r\n", time);
+    }
+    if (resume) {
+        if (is_stdout(dest) || isdir(dest) || stat(dest, &sb) != 0)
+            fail("error: failed to read partial download file", ESYSTEM);
+        struct tm* timeinfo = gmtime(&sb.st_mtime);
+        strftime(time, sizeof(time), "%a, %d %b %Y %H:%M:%S GMT", timeinfo);
+        n += snprintf(buffer + n, n < N ? N - n : 0,
+                "Range: bytes=%jd-\r\n", (intmax_t)sb.st_size);
+        n += snprintf(buffer + n, n < N ? N - n : 0, "If-Range: %s\r\n", time);
     }
     while (*headers != NULL)
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s\r\n", *(headers++));

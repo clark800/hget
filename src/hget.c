@@ -19,6 +19,7 @@
 const char* USAGE = "Usage: hget [options] <url>\n"
 "Options:\n"
 "  -o <path>       write output to the specified file or directory\n"
+"  -r              resume partial download\n"
 "  -n              only download if server file is newer than local file\n"
 "  -q              disable progress bar\n"
 "  -s              suppress all error messages after usage checks\n"
@@ -41,7 +42,7 @@ const char* USAGE = "Usage: hget [options] <url>\n"
 
 // ISO C99 6.7.8/10 static objects are initialized to 0
 static int quiet, entire, direct, lax, update, insecure, timeout, tunnel;
-static int suppress, nheaders, wget;
+static int suppress, resume, nheaders, wget;
 static char *dest, *upload, *proxyurl, *auth, *cacerts, *cert, *key, *method;
 static char *body, *headers[32];
 
@@ -89,11 +90,12 @@ static void usage(int status, int full) {
 static void parse_args(int argc, char* argv[]) {
     // glibc bug: https://sourceware.org/bugzilla/show_bug.cgi?id=25658
     optind = 1;  // https://stackoverflow.com/a/60484617/2647751
-    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:fqsnedlx";
+    const char* opts = wget ? "O:q" : "o:u:t:p:w:a:c:m:h:b:i:k:fqsnredlx";
     for (int opt; (opt = getopt(argc, argv, opts)) != -1;) {
         switch (opt) {
             case 'O':
             case 'o': dest = optarg; break;
+            case 'r': resume = 1; break;
             case 't': proxyurl = optarg; tunnel = 1; break;
             case 'p': proxyurl = optarg; tunnel = 0; break;
             case 'f': insecure = 1; break;
@@ -208,6 +210,9 @@ int main(int argc, char *argv[]) {
     if (!auth && url.userinfo[0])
         auth = url.userinfo;  // so auth will apply to redirects
 
+    if (resume && (is_stdout(dest) || isdir(dest) || access(dest, W_OK) != 0))
+        fail("error: partial download file is invalid or inaccessible", EUSAGE);
+
     if (!is_stdout(dest) && isdir(dest) && chdir(dest) != 0)
         fail("error: output directory is not accessible", EUSAGE);
 
@@ -227,8 +232,8 @@ int main(int argc, char *argv[]) {
     if (suppress)  // do this here so that usage errors still print to stderr
         freopen("/dev/null", "w", stderr);
     int status_code = interact(url, proxy, tunnel, auth, method, headers, body,
-                          upload, dest, entire, direct, lax, update, cacerts,
-                          cert, key, insecure, timeout, bar, 0);
+                          upload, dest, entire, direct, lax, update, resume,
+                          cacerts, cert, key, insecure, timeout, bar, 0);
 
     if (bar) {
         fclose(bar); // this will cause bar to get EOF and exit soon

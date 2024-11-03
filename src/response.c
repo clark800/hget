@@ -71,7 +71,27 @@ char* get_header(char* response, char* name) {
     return NULL;
 }
 
-static FILE* open_file(char* dest, URL url) {
+static FILE* open_file(char* dest, int status_code, char* header, int resume,
+        URL url) {
+    if (status_code == 206) {
+        if (!resume)
+            fail("error: unexpected partial content response", EPROTOCOL);
+        char* range = get_header(header, "Content-Range:");
+        if (!range)
+            fail("error: missing content-range header", EPROTOCOL);
+        if (is_stdout(dest) || isdir(dest))
+            fail("error: invalid partial download", EUSAGE);
+        char* space = strchr(range, ' ');
+        size_t range_start = space ? strtoul(space + 1, NULL, 10) : 0;
+        if (get_file_size(dest) != range_start)
+            fail("error: content-range does not match file size", EPROTOCOL);
+        FILE* out = fopen(dest, "a");
+        if (out == NULL)
+            sfail("open failed");
+        return out;
+    } else if (resume)
+        fail("error: resume not supported or source file modified", EPROTOCOL);
+
     if (is_stdout(dest))
         return stdout;
 
@@ -161,13 +181,13 @@ static void print_status_line(char* response) {
     fputc('\n', stderr);
 }
 
-int handle_response(char* buffer, FILE* sock, URL url, char* dest,
+int handle_response(char* buffer, FILE* sock, URL url, char* dest, int resume,
         char* method, int entire, int direct, int lax, FILE* bar) {
     size_t headlen = read_head(sock, buffer, BUFSIZE);
     int status_code = parse_status_line(buffer);
     if (status_code/100 == 2 || (direct && status_code/100 == 3) ||
             (lax && (status_code/100 != 3 || status_code == 304))) {
-        FILE* out = open_file(dest, url);
+        FILE* out = open_file(dest, status_code, buffer, resume, url);
         if (entire)
             write_out(out, buffer, headlen);
         if (strcmp(method ? method : "GET", "HEAD") != 0) {
