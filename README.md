@@ -4,18 +4,22 @@ hget is a minimalist HTTP/HTTPS client and download utility written in C.
 hget is designed to provide 99% of the value-weighted utility of curl in
 <1% as much code.
 
-#### Features
-* Support for HTTP/HTTPS proxies and tunnels (including TLS in TLS)
-* Automatically follows HTTP 3xx redirects.
-* Download progress can be sent to an external progress bar utility.
-* If the destination file exists and the `-n` option is specified,
-  the file will only be downloaded if the modification time on the server is
-  more recent than the modification time of the local file
-  (using the If-Modified-Since header).
-* Options to set the request method, headers, body, and basic auth.
-
 #### Size
 * About 850 lines of code (0.6% the size of curl at ~134,000 lines)
+
+#### Features
+* Progress bar
+* 3xx redirects by default
+* Resuming partial downloads
+* Download only if newer
+* Compressed responses
+* Basic authentication
+* HTTP/HTTPS proxy
+* HTTP/HTTPS tunnel (including TLS in TLS)
+* Upload file
+* Set body, method, headers
+* Custom CA certificates
+* Client certificates
 
 #### Portability
 * Should be portable to any POSIX-like system that has either
