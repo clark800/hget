@@ -46,6 +46,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
       -c <path>       use the specified CA cert file or directory
       -i <path>       set the client identity certificate
       -k <path>       set the client private key
+      -v              show verbose output
 
 To download a file to the current directory, use `hget -o. <url>`.
 

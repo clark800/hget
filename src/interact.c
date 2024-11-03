@@ -81,7 +81,8 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
 int interact(URL url, URL proxy, int tunnel, char* auth, char* method,
         char** headers, char* body, char* upload, char* dest, int entire,
         int direct, int lax, int update, int resume, char* cacerts, char* cert,
-        char* key, int insecure, int timeout, FILE* bar, int redirects) {
+        char* key, int insecure, int timeout, int verbose, FILE* bar,
+        int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ?
         opensock(proxy, cacerts, cert, key, 0, timeout) : NULL;
@@ -90,7 +91,7 @@ int interact(URL url, URL proxy, int tunnel, char* auth, char* method,
                  opensock(url, cacerts, cert, key, insecure, timeout);
 
     request(buffer, sock, url, tunnel ? (URL){0} : proxy, auth, method, headers,
-            body, upload, dest, update, resume);
+            body, upload, dest, update, resume, verbose);
     int status_code = handle_response(buffer, sock, url, dest, resume, method,
                                       entire, direct, lax, bar);
     fclose(sock);
@@ -106,7 +107,7 @@ int interact(URL url, URL proxy, int tunnel, char* auth, char* method,
         return interact(parse_url(location), proxy, tunnel, auth,
             status_code == 303 ? "GET" : method, headers, body, upload, dest,
             entire, direct, lax, update, resume, cacerts, cert, key, insecure,
-            timeout, bar, redirects + 1);
+            timeout, verbose, bar, redirects + 1);
     }
     return status_code;
 }

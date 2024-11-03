@@ -45,7 +45,7 @@ static size_t get_content_length(char* body, char* upload) {
 
 void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
         char* method, char** headers, char* body, char* upload, char* dest,
-        int update, int resume) {
+        int update, int resume, int verbose) {
     struct stat sb;
     char time[32];
     size_t n = 0, N = BUFSIZE;
@@ -98,6 +98,12 @@ void request(char* buffer, FILE* sock, URL url, URL proxy, char* auth,
 
     if (n >= N)  // equal is a failure because of null terminator
         fail("error: request too large", EUSAGE);
+
+    if (verbose) {
+        fputs("================= REQUEST HEADER ==================\n", stderr);
+        fwrite(buffer, 1, n, stderr);
+        fputs("======================= END =======================\n", stderr);
+    }
 
     if (body && strlen(body) < (n < N ? N - n : 0)) {
         n += snprintf(buffer + n, n < N ? N - n : 0, "%s", body);
