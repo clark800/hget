@@ -5,7 +5,7 @@ hget is designed to provide 99% of the value-weighted utility of curl in
 <1% as much code.
 
 #### Features
-* Support for tunnel and relay mode HTTP/HTTPS proxies (including TLS in TLS)
+* Support for HTTP/HTTPS proxies and tunnels (including TLS in TLS)
 * Automatically follows HTTP 3xx redirects.
 * Download progress can be sent to an external progress bar utility.
 * If the destination file exists and the `-n` option is specified,

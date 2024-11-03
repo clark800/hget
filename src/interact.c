@@ -78,18 +78,18 @@ static FILE* proxy_connect(char* buffer, FILE* proxysock, URL url, URL proxy,
     return sock;
 }
 
-int interact(URL url, URL proxy, int relay, char* auth, char* method,
+int interact(URL url, URL proxy, int tunnel, char* auth, char* method,
         char** headers, char* body, char* upload, char* dest, int entire,
         int direct, int lax, int update, char* cacerts, char* cert, char* key,
         int insecure, int timeout, FILE* bar, int redirects) {
     char buffer[BUFSIZE];
     FILE* proxysock = proxy.host ?
         opensock(proxy, cacerts, cert, key, 0, timeout) : NULL;
-    FILE* sock = proxy.host ? (relay ? proxysock : proxy_connect(buffer,
-                 proxysock, url, proxy, cacerts, cert, key, insecure)) :
+    FILE* sock = proxy.host ? (tunnel ? proxy_connect(buffer, proxysock, url,
+                 proxy, cacerts, cert, key, insecure) : proxysock) :
                  opensock(url, cacerts, cert, key, insecure, timeout);
 
-    request(buffer, sock, url, relay ? proxy : (URL){0}, auth, method, headers,
+    request(buffer, sock, url, tunnel ? (URL){0} : proxy, auth, method, headers,
             body, upload, dest, update);
     int status_code = handle_response(buffer, sock, url, dest, method, entire,
                                       direct, lax, bar);
@@ -103,7 +103,7 @@ int interact(URL url, URL proxy, int relay, char* auth, char* method,
         char* location = get_header(buffer, "Location:");
         if (location == NULL)
             fail("error: redirect missing location", EPROTOCOL);
-        return interact(parse_url(location), proxy, relay, auth,
+        return interact(parse_url(location), proxy, tunnel, auth,
             status_code == 303 ? "GET" : method, headers, body, upload, dest,
             entire, direct, lax, update, cacerts, cert, key, insecure, timeout,
             bar, redirects + 1);
