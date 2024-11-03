@@ -212,11 +212,11 @@ int main(int argc, char *argv[]) {
     strcpy(proxybuf, proxyurl ? proxyurl : "");
     URL proxy = proxyurl ? parse_url(proxybuf) : (URL){0};
 
-    if (!is_stdout(dest) && !isdir(dest) && access(dest, F_OK) == 0)
-        fail("error: output file already exists", EUSAGE);
-
     if (!auth && url.userinfo[0])
         auth = url.userinfo;  // so auth will apply to redirects
+
+    if (!resume && !is_stdout(dest) && !isdir(dest) && access(dest, F_OK) == 0)
+        fail("error: output file already exists", EUSAGE);
 
     if (resume && (is_stdout(dest) || isdir(dest) || access(dest, W_OK) != 0))
         fail("error: partial download file is invalid or inaccessible", EUSAGE);
