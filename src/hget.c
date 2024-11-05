@@ -120,11 +120,15 @@ static void parse_args(int argc, char* argv[]) {
             case 'v': verbose = 1; break;
             case 'z': zip = 1; break;
             case 'j':
-            case 'h':
                 if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 2))
                     fail("Too many header arguments", EUSAGE);
-                headers[nheaders++] = opt == 'h' ? optarg :
-                    "Content-Type: application/json";
+                headers[nheaders++] = "Content-Type: application/json";
+                headers[nheaders++] = "Accept: application/json, */*";
+                break;
+            case 'h':
+                if (nheaders >= (int)(sizeof(headers)/sizeof(char*) - 1))
+                    fail("Too many header arguments", EUSAGE);
+                headers[nheaders++] = optarg;
                 break;
             default:
                 if (argc == 2 && optopt == 'h')  // treat this like "help"
